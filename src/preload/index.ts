@@ -34,6 +34,17 @@ const api: GenyApi = {
   cli: {
     detect: () => ipcRenderer.invoke('cli:detect'),
   },
+  mcp: {
+    list: () => ipcRenderer.invoke('mcp:list'),
+    add: (input) => ipcRenderer.invoke('mcp:add', input),
+    remove: (id) => ipcRenderer.invoke('mcp:remove', id),
+    setEnabled: (id, enabled) => ipcRenderer.invoke('mcp:setEnabled', id, enabled),
+    forAgent: (agentId) => ipcRenderer.invoke('mcp:forAgent', agentId),
+    setForAgent: (agentId, ids) => ipcRenderer.invoke('mcp:setForAgent', agentId, ids),
+  },
+  capabilities: {
+    inspect: (agentId) => ipcRenderer.invoke('capabilities:inspect', agentId),
+  },
   chat: {
     history: (agentId) => ipcRenderer.invoke('chat:history', agentId),
     send: (input) => ipcRenderer.invoke('chat:send', input),

@@ -17,6 +17,25 @@ export interface AgentRecord {
   dir: string;
 }
 
+export interface McpServerRecord {
+  id: string;
+  name: string;
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  enabled: boolean;
+  createdAt: number;
+}
+
+/** What the engine actually loaded for a session — the honest answer to
+ *  "is my MCP server / skill working?" */
+export interface CapabilityReport {
+  tools: string[];
+  mcpServers: Array<{ name: string; tools: number; error?: string }>;
+  skills: Array<{ id: string; name: string }>;
+  slashCommands: string[];
+}
+
 export interface StoredMessage {
   role: 'user' | 'assistant' | 'system';
   text: string;
@@ -75,6 +94,18 @@ export interface GenyApi {
   };
   cli: {
     detect(): Promise<CliInfo>;
+  };
+  mcp: {
+    list(): Promise<McpServerRecord[]>;
+    add(input: { name: string; command: string; args?: string[]; env?: Record<string, string> }): Promise<McpServerRecord>;
+    remove(id: string): Promise<void>;
+    setEnabled(id: string, enabled: boolean): Promise<void>;
+    forAgent(agentId: string): Promise<McpServerRecord[]>;
+    setForAgent(agentId: string, serverIds: string[]): Promise<void>;
+  };
+  capabilities: {
+    /** ask the running engine what a session actually loaded */
+    inspect(agentId: string): Promise<CapabilityReport>;
   };
   chat: {
     /** conversation replayed from the store — survives an app restart */

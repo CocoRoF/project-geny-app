@@ -21,7 +21,8 @@ export type SidecarCommand =
   | { id: string; op: 'prompt_reply'; promptId: string; value: string | null }
   | { id: string; op: 'hitl'; token: string; decision: HitlDecision }
   | { id: string; op: 'refresh'; session: string; config: TurnConfig }
-  | { id: string; op: 'evict'; session: string };
+  | { id: string; op: 'evict'; session: string }
+  | { id: string; op: 'inspect'; session: string };
 
 export type HitlDecision = 'approve' | 'reject' | 'cancel';
 
@@ -52,6 +53,12 @@ export interface TurnConfig {
   /** hard ceiling for one turn — a hung CLI must surface as an error, not
    *  as a spinner that never stops */
   timeoutSeconds?: number;
+  /** MCP servers the engine spawns for this session (it owns the children —
+   *  the app only owns the definitions) */
+  mcpServers?: Array<{ name: string; command: string; args?: string[]; env?: Record<string, string> }>;
+  /** directories scanned for SKILL.md files and slash commands */
+  skillDirs?: string[];
+  commandDirs?: string[];
   extras?: Record<string, unknown>;
 }
 

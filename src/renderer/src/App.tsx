@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { AgentSidebar } from './components/AgentSidebar';
 import { AgentWorkspace } from './components/AgentWorkspace';
 import { EngineBanner } from './components/EngineBanner';
+import { LibraryView } from './components/LibraryView';
 import { SettingsView } from './components/SettingsView';
 import { useApp } from './store/app-store';
 import type { JSX } from 'react';
@@ -11,6 +12,7 @@ function ActivityRail(): JSX.Element {
   const setView = useApp((s) => s.setView);
   const items = [
     { id: 'agents' as const, glyph: '◆', label: '에이전트' },
+    { id: 'library' as const, glyph: '⌘', label: '라이브러리 — MCP · 스킬 · 도구' },
     { id: 'settings' as const, glyph: '⚙', label: '설정' },
   ];
   return (
@@ -56,14 +58,19 @@ export function App(): JSX.Element {
       <EngineBanner />
       <div className="flex min-h-0 flex-1">
         <ActivityRail />
-        {view === 'agents' ? (
+        {view === 'agents' && (
           <>
             <AgentSidebar />
             <AgentWorkspace />
           </>
-        ) : (
-          <SettingsView />
         )}
+        {view === 'library' && (
+          <>
+            <AgentSidebar />
+            <LibraryView />
+          </>
+        )}
+        {view === 'settings' && <SettingsView />}
       </div>
     </div>
   );

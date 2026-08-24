@@ -299,6 +299,8 @@ class Daemon:
             session = self.sessions.get(sid)
             if session is not None:
                 await session.refresh(SessionConfig.from_json(cmd.get("config") or {}))
+        elif op == "inspect":
+            await self._inspect(cmd)
         elif op == "evict":
             await self.evict(str(cmd.get("session") or ""))
         elif op == "shutdown":
@@ -307,6 +309,91 @@ class Daemon:
             self._stopping.set()
         else:
             emit({"id": cid, "type": "error", "error": f"unknown op {op!r}"})
+
+    async def _inspect(self, cmd: dict[str, Any]) -> None:
+        """Report what the engine ACTUALLY loaded for a session.
+
+        "I added an MCP server" and "the agent can use it" are different
+        claims; the second is the one worth showing, so this reads the live
+        registries rather than echoing config back.
+        """
+        cid = str(cmd.get("id") or "")
+        sid = str(cmd.get("session") or "")
+        report: dict[str, Any] = {"tools": [], "mcpServers": [], "skills": [], "slashCommands": []}
+        session = self.sessions.get(sid)
+        pipeline = getattr(session, "_pipeline", None) if session else None
+        if pipeline is not None:
+            try:
+                registry = pipeline.tool_registry
+                names = getattr(registry, "list_names", None)
+                report["tools"] = sorted(names() if callable(names) else list(getattr(registry, "tools", {}) or {}))
+            except Exception:
+                pass
+            # MCPManager exposes list_servers()/list_server_status(), not a
+            # `servers` dict — reading the wrong attribute silently reported
+            # "0 servers" for a server that was in fact configured, which is
+            # the exact lie this panel exists to prevent.
+            try:
+                manager = pipeline.mcp_manager
+                statuses: dict[str, Any] = {}
+                status_fn = getattr(manager, "list_server_status", None)
+                if callable(status_fn):
+                    raw = status_fn()
+                    if isinstance(raw, dict):
+                        statuses = raw
+                    elif isinstance(raw, list):
+                        statuses = {
+                            str(item.get("name", i)): item
+                            for i, item in enumerate(raw)
+                            if isinstance(item, dict)
+                        }
+                names = list(statuses) or list(getattr(manager, "list_servers", lambda: [])())
+                for name in names:
+                    info = statuses.get(name) if isinstance(statuses.get(name), dict) else {}
+                    tools = info.get("tools") or info.get("tool_count")
+                    if tools is None:
+                        try:
+                            tools = len(manager.discover_tools(name) or [])
+                        except Exception:
+                            tools = 0
+                    report["mcpServers"].append({
+                        "name": str(name),
+                        "tools": int(tools if isinstance(tools, int) else len(tools or [])),
+                        "error": info.get("error") or info.get("last_error"),
+                        "state": str(info.get("state") or info.get("status") or ""),
+                    })
+            except Exception as exc:
+                report["mcpServers"].append({"name": "(inspect failed)", "tools": 0, "error": str(exc)[:200]})
+
+            # Under the CLI backend the engine's manager stays empty by
+            # design — the CLI connects the servers itself, so report what
+            # was handed to it rather than an honest-looking "0 servers".
+            if not report["mcpServers"] and session is not None:
+                for entry in (session.config.mcp_servers or []):
+                    report["mcpServers"].append({
+                        "name": str(entry.get("name") or "?"),
+                        "tools": 0,
+                        "state": "delegated-to-cli",
+                        "error": None,
+                    })
+            try:
+                skills = getattr(pipeline, "skill_registry", None)
+                listing = getattr(skills, "list_all", None)
+                if callable(listing):
+                    report["skills"] = [
+                        {"id": str(getattr(sk, "id", "")), "name": str(getattr(sk, "name", ""))}
+                        for sk in listing()
+                    ]
+            except Exception:
+                pass
+        try:
+            from geny_executor.slash_commands import get_default_registry
+
+            listing = get_default_registry().list_all()
+            report["slashCommands"] = sorted(str(getattr(c, "name", c)) for c in listing)
+        except Exception:
+            pass
+        emit({"id": cid, "type": "meta", "data": {"kind": "capabilities", **report}})
 
     async def _hitl(self, cmd: dict[str, Any]) -> None:
         token = str(cmd.get("token") or "")

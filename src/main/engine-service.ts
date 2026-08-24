@@ -8,10 +8,17 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { AgentRecord, EngineStatus } from '@shared/api-types';
-import { TURN_TIMEOUT_SECONDS } from '@shared/models';
+import { defaultModel, TURN_TIMEOUT_SECONDS } from '@shared/models';
 import type { SidecarEvent, TurnConfig } from '@shared/sidecar-protocol';
 import { locateRuntime, type LocateInput } from './runtime-locate';
 import { SidecarDaemon } from './sidecar';
+
+export interface CapabilityReport {
+  tools: string[];
+  mcpServers: Array<{ name: string; tools: number; error?: string }>;
+  skills: Array<{ id: string; name: string }>;
+  slashCommands: string[];
+}
 
 export interface EngineDeps {
   locate: LocateInput;
@@ -19,6 +26,11 @@ export interface EngineDeps {
   cwd: string;
   secret(provider: string): string | undefined;
   agentDir(agentId: string): string;
+  /** MCP servers enabled for this agent, in engine shape */
+  mcpFor(agentId: string): Array<{ name: string; command: string; args?: string[]; env?: Record<string, string> }>;
+  /** where SKILL.md files and slash commands live (global + per agent) */
+  skillDirs(agentId: string): string[];
+  commandDirs(agentId: string): string[];
   emit(event: SidecarEvent): void;
   onStatus(status: EngineStatus): void;
   /** called once per turn with the assistant's full reply (never per chunk:
@@ -52,6 +64,8 @@ export class EngineService {
   /** turnId → { agentId, streamed text } — the attribution the UI events
    *  lack, and the buffer that makes one write per turn possible */
   private readonly turns = new Map<string, { agentId: string; text: string }>();
+  /** in-flight inspect calls, resolved by the matching meta event */
+  private readonly inspectWaiters = new Map<string, (r: CapabilityReport) => void>();
 
   constructor(private readonly deps: EngineDeps) {}
 
@@ -110,6 +124,20 @@ export class EngineService {
   }
 
   private route(event: SidecarEvent): void {
+    if ('id' in event && event.type === 'meta') {
+      const waiter = this.inspectWaiters.get(event.id);
+      const data = event.data as Record<string, unknown>;
+      if (waiter && data?.kind === 'capabilities') {
+        this.inspectWaiters.delete(event.id);
+        waiter({
+          tools: (data.tools as string[]) ?? [],
+          mcpServers: (data.mcpServers as CapabilityReport['mcpServers']) ?? [],
+          skills: (data.skills as CapabilityReport['skills']) ?? [],
+          slashCommands: (data.slashCommands as string[]) ?? [],
+        });
+        return;
+      }
+    }
     if ('id' in event) {
       const turn = this.turns.get(event.id);
       if (turn) {
@@ -130,11 +158,21 @@ export class EngineService {
     const dir = this.deps.agentDir(agent.id);
     return {
       provider: agent.provider,
-      model: agent.model,
+      // never leave the model to the engine: its CLI default id does not
+      // exist, and an unknown model makes the CLI hang instead of erroring
+      model: agent.model ?? defaultModel(agent.provider),
       apiKey: this.deps.secret(agent.provider),
       agentDir: dir,
       allowedPaths: [`${dir}/workspace`],
       permissionMode: defaultPermissionMode(agent.provider),
+      // the posture is the app's permission policy — without it the engine
+      // falls back to a matrix that ALLOWS on no-match
+      posture: agent.posture,
+      systemPrompt: agent.systemPrompt,
+      timeoutSeconds: TURN_TIMEOUT_SECONDS,
+      mcpServers: this.deps.mcpFor(agent.id),
+      skillDirs: this.deps.skillDirs(agent.id),
+      commandDirs: this.deps.commandDirs(agent.id),
     };
   }
 
@@ -160,6 +198,13 @@ export class EngineService {
     });
   }
 
+  /** Drop a session so the next turn rebuilds it. Needed when something
+   *  that is decided at BUILD time changes — MCP servers, tool roster. */
+  evict(agentId: string): void {
+    if (!this.daemon?.running) return;
+    this.daemon.send({ id: this.daemon.nextId('ev'), op: 'evict', session: agentId });
+  }
+
   cancel(turnId: string): void {
     this.daemon?.send({ id: this.daemon.nextId('cx'), op: 'cancel', target: turnId });
   }
@@ -170,6 +215,27 @@ export class EngineService {
 
   decideHitl(token: string, decision: 'approve' | 'reject' | 'cancel'): void {
     this.daemon?.send({ id: this.daemon.nextId('hl'), op: 'hitl', token, decision });
+  }
+
+  /** Ask the engine what a session actually loaded. Resolves with an empty
+   *  report if the engine is down — the UI shows "engine not running"
+   *  rather than a spinner that never ends. */
+  async inspect(agentId: string): Promise<CapabilityReport> {
+    const empty: CapabilityReport = { tools: [], mcpServers: [], skills: [], slashCommands: [] };
+    const daemon = this.daemon;
+    if (!daemon?.running) return empty;
+    const id = daemon.nextId('in');
+    return new Promise<CapabilityReport>((resolve) => {
+      const timer = setTimeout(() => {
+        this.inspectWaiters.delete(id);
+        resolve(empty);
+      }, 15_000);
+      this.inspectWaiters.set(id, (report) => {
+        clearTimeout(timer);
+        resolve(report);
+      });
+      daemon.send({ id, op: 'inspect', session: agentId });
+    });
   }
 
   async stop(): Promise<void> {

@@ -37,7 +37,7 @@ export interface PendingHitl {
   detail: unknown;
 }
 
-export type TopView = 'agents' | 'settings';
+export type TopView = 'agents' | 'library' | 'settings';
 export type AgentTab = 'chat' | 'config';
 
 interface AppState {

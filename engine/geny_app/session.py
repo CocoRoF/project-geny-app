@@ -48,6 +48,10 @@ class SessionConfig:
     system_prompt: Optional[str] = None
     max_turns: Optional[int] = None
     timeout_seconds: Optional[float] = None
+    mcp_servers: list[dict[str, Any]] = field(default_factory=list)
+    #: directories scanned for SKILL.md and slash commands
+    skill_dirs: list[str] = field(default_factory=list)
+    command_dirs: list[str] = field(default_factory=list)
     extras: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -66,6 +70,9 @@ class SessionConfig:
             system_prompt=raw.get("systemPrompt"),
             max_turns=raw.get("maxTurns"),
             timeout_seconds=raw.get("timeoutSeconds"),
+            mcp_servers=raw.get("mcpServers") or [],
+            skill_dirs=raw.get("skillDirs") or [],
+            command_dirs=raw.get("commandDirs") or [],
             extras=raw.get("extras") or {},
         )
 
@@ -113,14 +120,39 @@ class AgentSession:
             extras=self._host.build_extras(self),
         )
 
+    def _discover_slash_commands(self) -> None:
+        """Point the engine's slash registry at the app's command dirs.
+
+        Discovery is global in the engine (one default registry), so this is
+        idempotent and additive rather than per-session state."""
+        if not self.config.command_dirs:
+            return
+        try:
+            from geny_executor.slash_commands import get_default_registry
+
+            registry = get_default_registry()
+            paths = getattr(registry, "discovery_paths", None)
+            if paths is None:
+                return
+            for directory in self.config.command_dirs:
+                if directory not in paths:
+                    paths.append(directory)
+            discover = getattr(registry, "discover_paths", None)
+            if callable(discover):
+                discover()
+        except Exception:
+            pass
+
     async def _build(self) -> Pipeline:
         workspace, memory, _ = self._ensure_dirs()
+        self._discover_slash_commands()
         preset = self.config.preset if self.config.preset in _PRESETS else "worker_adaptive"
         manifest = build_manifest(
             preset,
             provider=self.config.provider,
             model=self.config.model,
             built_in_tools=self.config.built_in_tools or DEFAULT_TOOLS,
+            mcp_servers=self.config.mcp_servers or None,
             name=f"agent-{self.session_id}",
         )
         # The adaptive router REWRITES the caller's model: it resolved
@@ -185,6 +217,26 @@ class AgentSession:
         # the engine's default id) — bound it so the turn can report an error
         if self.config.timeout_seconds:
             extras.setdefault("timeout_s", float(self.config.timeout_seconds))
+        # MCP is asymmetric the same way tools are: for API providers the
+        # ENGINE connects the servers from the manifest, but under the CLI
+        # backend `from_manifest_async` leaves `mcp_manager` empty on purpose
+        # — the CLI owns its own MCP. Hand them over as `--mcp-config`
+        # instead, or a server the user enabled would silently do nothing.
+        if self.config.mcp_servers and "mcp_config" not in extras:
+            servers: dict[str, Any] = {}
+            for entry in self.config.mcp_servers:
+                name = str(entry.get("name") or "").strip()
+                command = str(entry.get("command") or "").strip()
+                if not name or not command:
+                    continue
+                spec: dict[str, Any] = {"type": "stdio", "command": command,
+                                        "args": list(entry.get("args") or [])}
+                env = entry.get("env") or {}
+                if env:
+                    spec["env"] = dict(env)
+                servers[name] = spec
+            if servers:
+                extras["mcp_config"] = {"mcpServers": servers}
         try:
             return replace(creds, extras=extras)
         except Exception:

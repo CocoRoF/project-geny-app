@@ -12,7 +12,7 @@
  * that are obvious in a diff, not a framework.
  */
 import { DatabaseSync } from 'node:sqlite';
-import type { AgentRecord, StoredMessage } from '@shared/api-types';
+import type { AgentRecord, McpServerRecord, StoredMessage } from '@shared/api-types';
 import type { AgentPosture } from '@shared/sidecar-protocol';
 
 export type AgentPatch = Partial<Pick<AgentRecord, 'name' | 'model' | 'posture' | 'systemPrompt'>>;
@@ -25,6 +25,14 @@ export interface Store {
     insert(a: AgentRecord): void;
     update(id: string, patch: AgentPatch): void;
     remove(id: string): void;
+  };
+  mcp: {
+    list(): McpServerRecord[];
+    insert(s: McpServerRecord): void;
+    remove(id: string): void;
+    setEnabled(id: string, enabled: boolean): void;
+    forAgent(agentId: string): McpServerRecord[];
+    setForAgent(agentId: string, serverIds: string[]): void;
   };
   messages: {
     append(m: { agentId: string; role: string; text: string; meta?: unknown }): void;
@@ -61,6 +69,22 @@ const MIGRATIONS: string[] = [
   // v2 — permission posture and per-agent system prompt
   `ALTER TABLE agents ADD COLUMN posture TEXT NOT NULL DEFAULT 'standard';
    ALTER TABLE agents ADD COLUMN system_prompt TEXT;`,
+  // v3 — MCP servers: one registry, enabled per agent. The engine spawns
+  // them itself inside the sidecar, so the app only owns the definition.
+  `CREATE TABLE mcp_servers (
+     id TEXT PRIMARY KEY,
+     name TEXT NOT NULL UNIQUE,
+     command TEXT NOT NULL,
+     args TEXT NOT NULL DEFAULT '[]',
+     env TEXT NOT NULL DEFAULT '{}',
+     enabled INTEGER NOT NULL DEFAULT 1,
+     created_at INTEGER NOT NULL
+   );
+   CREATE TABLE agent_mcp (
+     agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+     server_id TEXT NOT NULL REFERENCES mcp_servers(id) ON DELETE CASCADE,
+     PRIMARY KEY (agent_id, server_id)
+   );`,
 ];
 
 const nullable = (v: unknown): string | undefined =>
@@ -74,6 +98,24 @@ const toAgent = (r: Record<string, unknown>): AgentRecord => ({
   posture: (nullable(r.posture) ?? 'standard') as AgentPosture,
   systemPrompt: nullable(r.system_prompt),
   dir: String(r.dir),
+  createdAt: Number(r.created_at),
+});
+
+const parseJson = <T,>(raw: unknown, fallback: T): T => {
+  try {
+    return JSON.parse(String(raw)) as T;
+  } catch {
+    return fallback;
+  }
+};
+
+const toMcp = (r: Record<string, unknown>): McpServerRecord => ({
+  id: String(r.id),
+  name: String(r.name),
+  command: String(r.command),
+  args: parseJson<string[]>(r.args, []),
+  env: parseJson<Record<string, string>>(r.env, {}),
+  enabled: Number(r.enabled) === 1,
   createdAt: Number(r.created_at),
 });
 
@@ -116,6 +158,20 @@ export function openStore(file: string): Store {
     getAgent: db.prepare('SELECT * FROM agents WHERE id = ?'),
     deleteAgent: db.prepare('DELETE FROM agents WHERE id = ?'),
     clearMessages: db.prepare('DELETE FROM messages WHERE agent_id = ?'),
+    listMcp: db.prepare('SELECT * FROM mcp_servers ORDER BY name'),
+    insertMcp: db.prepare(
+      'INSERT INTO mcp_servers (id,name,command,args,env,enabled,created_at) VALUES (?,?,?,?,?,?,?)',
+    ),
+    deleteMcp: db.prepare('DELETE FROM mcp_servers WHERE id = ?'),
+    enableMcp: db.prepare('UPDATE mcp_servers SET enabled = ? WHERE id = ?'),
+    mcpForAgent: db.prepare(
+      `SELECT s.* FROM mcp_servers s
+         JOIN agent_mcp m ON m.server_id = s.id
+        WHERE m.agent_id = ? AND s.enabled = 1
+        ORDER BY s.name`,
+    ),
+    clearAgentMcp: db.prepare('DELETE FROM agent_mcp WHERE agent_id = ?'),
+    linkAgentMcp: db.prepare('INSERT OR IGNORE INTO agent_mcp (agent_id,server_id) VALUES (?,?)'),
     insertMessage: db.prepare('INSERT INTO messages (agent_id,role,text,meta,created_at) VALUES (?,?,?,?,?)'),
     recentMessages: db.prepare(
       'SELECT role,text,created_at AS createdAt FROM messages WHERE agent_id = ? ORDER BY id DESC LIMIT ?',
@@ -154,6 +210,27 @@ export function openStore(file: string): Store {
       },
       remove: (id) => {
         stmt.deleteAgent.run(id);
+      },
+    },
+    mcp: {
+      list: () => (stmt.listMcp.all() as Array<Record<string, unknown>>).map(toMcp),
+      insert: (server) => {
+        stmt.insertMcp.run(
+          server.id, server.name, server.command,
+          JSON.stringify(server.args ?? []), JSON.stringify(server.env ?? {}),
+          server.enabled ? 1 : 0, server.createdAt,
+        );
+      },
+      remove: (id) => {
+        stmt.deleteMcp.run(id);
+      },
+      setEnabled: (id, enabled) => {
+        stmt.enableMcp.run(enabled ? 1 : 0, id);
+      },
+      forAgent: (agentId) => (stmt.mcpForAgent.all(agentId) as Array<Record<string, unknown>>).map(toMcp),
+      setForAgent: (agentId, serverIds) => {
+        stmt.clearAgentMcp.run(agentId);
+        for (const id of serverIds) stmt.linkAgentMcp.run(agentId, id);
       },
     },
     messages: {

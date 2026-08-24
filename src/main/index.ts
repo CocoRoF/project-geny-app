@@ -3,7 +3,7 @@
  * and owns nothing else. (xgen-connector's 3,330-line index.ts is the
  * anti-pattern this file exists to avoid.)
  */
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { app, BrowserWindow, ipcMain, safeStorage, shell } from 'electron';
 import { agentDir as resolveAgentDir, layout, resolveDataRoot } from './data-root';
@@ -54,6 +54,11 @@ async function boot(): Promise<void> {
     isPackaged: app.isPackaged,
   });
   const paths = layout(resolved.dataRoot);
+  // user-authored capability folders — created empty so they are
+  // discoverable in the file manager rather than documented-only
+  for (const sub of ['skills', 'commands']) {
+    mkdirSync(join(resolved.dataRoot, sub), { recursive: true });
+  }
   const store = openStore(paths.db);
   const secrets = createSecretStore(paths.secrets, safeStorage);
 
@@ -74,6 +79,17 @@ async function boot(): Promise<void> {
     },
     secret: (provider) => secrets.get(`apiKey:${provider}`),
     agentDir: (id) => resolveAgentDir(paths, id),
+    mcpFor: (id) =>
+      store.mcp.forAgent(id).map((s) => ({
+        name: s.name,
+        command: s.command,
+        args: s.args,
+        env: s.env,
+      })),
+    // global first, then the agent's own — a per-agent skill shadows a
+    // global one of the same id, which is the intuitive precedence
+    skillDirs: (id) => [join(paths.dataRoot, 'skills'), join(resolveAgentDir(paths, id), 'skills')],
+    commandDirs: (id) => [join(paths.dataRoot, 'commands'), join(resolveAgentDir(paths, id), 'commands')],
     emit: (event) => forwardEvent(mainWindow, event),
     persistAssistant: (agentId, text) => {
       store.messages.append({ agentId, role: 'assistant', text });

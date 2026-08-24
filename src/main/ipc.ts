@@ -29,6 +29,13 @@ export const CHANNELS = {
   secretsClear: 'secrets:clearApiKey',
   secretsBackend: 'secrets:backend',
   cliDetect: 'cli:detect',
+  mcpList: 'mcp:list',
+  mcpAdd: 'mcp:add',
+  mcpRemove: 'mcp:remove',
+  mcpSetEnabled: 'mcp:setEnabled',
+  mcpForAgent: 'mcp:forAgent',
+  mcpSetForAgent: 'mcp:setForAgent',
+  capabilitiesInspect: 'capabilities:inspect',
   chatHistory: 'chat:history',
   chatSend: 'chat:send',
   chatCancel: 'chat:cancel',
@@ -130,6 +137,38 @@ export function registerIpc(deps: IpcDeps): void {
     cliCache ??= detectCli('claude');
     return cliCache;
   });
+
+  ipcMain.handle(CHANNELS.mcpList, () => deps.store.mcp.list());
+  ipcMain.handle(
+    CHANNELS.mcpAdd,
+    (_e, input: { name: string; command: string; args?: string[]; env?: Record<string, string> }) => {
+      const record = {
+        id: randomUUID(),
+        name: input.name.trim(),
+        command: input.command.trim(),
+        args: input.args ?? [],
+        env: input.env ?? {},
+        enabled: true,
+        createdAt: Date.now(),
+      };
+      deps.store.mcp.insert(record);
+      return record;
+    },
+  );
+  ipcMain.handle(CHANNELS.mcpRemove, (_e, id: string) => {
+    deps.store.mcp.remove(id);
+  });
+  ipcMain.handle(CHANNELS.mcpSetEnabled, (_e, id: string, enabled: boolean) => {
+    deps.store.mcp.setEnabled(id, enabled);
+  });
+  ipcMain.handle(CHANNELS.mcpForAgent, (_e, agentId: string) => deps.store.mcp.forAgent(agentId));
+  ipcMain.handle(CHANNELS.mcpSetForAgent, (_e, agentId: string, ids: string[]) => {
+    deps.store.mcp.setForAgent(agentId, ids);
+    // MCP servers are connected when the pipeline is built, so a change has
+    // to evict the session rather than refresh it
+    deps.engine.evict(agentId);
+  });
+  ipcMain.handle(CHANNELS.capabilitiesInspect, (_e, agentId: string) => deps.engine.inspect(agentId));
 
   ipcMain.handle(CHANNELS.chatSend, async (_e, input: { agentId: string; text: string }) => {
     const agent = agentById(input.agentId);
