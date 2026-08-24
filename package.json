@@ -1,9 +1,12 @@
 {
   "name": "project-geny-app",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Geny as a single-user desktop app — agents, tools, memory. No server.",
   "main": "./out/main/index.js",
-  "author": "CocoRoF",
+  "author": {
+    "name": "CocoRoF",
+    "email": "gkfua00@gmail.com"
+  },
   "license": "Apache-2.0",
   "private": true,
   "type": "module",
