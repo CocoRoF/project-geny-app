@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 import time
 from dataclasses import dataclass, field, replace
@@ -76,6 +77,8 @@ class SessionConfig:
     extras: dict[str, Any] = field(default_factory=dict)
     #: capabilities only Electron can perform, exposed to the agent as tools
     host_tools: list[dict[str, Any]] = field(default_factory=list)
+    #: hooks.yaml — user-configurable gates that can block or modify a tool
+    hooks_file: Optional[str] = None
 
     @classmethod
     def from_json(cls, raw: dict[str, Any]) -> "SessionConfig":
@@ -98,6 +101,7 @@ class SessionConfig:
             command_dirs=raw.get("commandDirs") or [],
             extras=raw.get("extras") or {},
             host_tools=raw.get("hostTools") or [],
+            hooks_file=raw.get("hooksFile"),
         )
 
 
@@ -109,6 +113,8 @@ class AgentSession:
         self.config = config
         self._host = host
         self._pipeline: Optional[Pipeline] = None
+        #: the user's hook gates, or None when they have none
+        self.hook_runner: Any = None
         self._state: Optional[PipelineState] = None
         self._lock = asyncio.Lock()
         self.last_used = time.time()
@@ -211,9 +217,56 @@ class AgentSession:
         }
         creds = CredentialBundle(by_provider={self.config.provider: self._credentials(workspace)})
         pipeline = await Pipeline.from_manifest_async(manifest, credentials=creds)
-        pipeline.attach_runtime(tool_context=self._tool_context(workspace))
+        # attach_runtime is construction-time only, so everything the session
+        # injects has to go in this one call — a later refresh_runtime for the
+        # hook runner looked like it worked and left hooks unattached.
+        hook_runner = self._build_hook_runner()
+        # keep it: the pipeline does not expose one, and both diagnostics and
+        # tests need to know whether gates are actually active
+        self.hook_runner = hook_runner
+        tool_context = self._tool_context(workspace)
+        if hook_runner is not None:
+            tool_context.hook_runner = hook_runner
+        pipeline.attach_runtime(tool_context=tool_context, hook_runner=hook_runner)
         self._register_host_tools(pipeline)
         return pipeline
+
+    def _build_hook_runner(self) -> Any:
+        """User hooks — external programs that observe, and can BLOCK, tool
+        calls. Returns None when the user has none.
+
+        Two opt-ins on purpose. The engine additionally requires
+        GENY_ALLOW_HOOKS in the environment before it will spawn a subprocess,
+        because a config file that silently starts running programs on the
+        user's machine is not something an app should arrange quietly. The app
+        sets it only when a hooks file actually exists and declares
+        `enabled: true`.
+        """
+        path_s = self.config.hooks_file
+        if not path_s:
+            return None
+        path = Path(path_s)
+        if not path.exists():
+            return None
+        try:
+            from geny_executor.hooks import HookRunner, load_hooks_config
+
+            config = load_hooks_config(path)
+            if not getattr(config, "enabled", False):
+                return None
+            os.environ.setdefault("GENY_ALLOW_HOOKS", "1")
+            return HookRunner(config)
+        except Exception as exc:
+            # a broken hooks file must not take the session down, but it must
+            # not be invisible either
+            from .protocol import emit
+
+            emit({
+                "type": "notice",
+                "level": "warn",
+                "message": f"hooks 파일을 읽지 못했습니다 ({path.name}): {exc}",
+            })
+            return None
 
     def _register_host_tools(self, pipeline: Pipeline) -> None:
         """Expose the app's own capabilities as ordinary agent tools.

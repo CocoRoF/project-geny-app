@@ -33,6 +33,8 @@ export interface EngineDeps {
   mcpFor(agentId: string): Array<{ name: string; command: string; args?: string[]; env?: Record<string, string> }>;
   /** where SKILL.md files and slash commands live (global + per agent) */
   skillDirs(agentId: string): string[];
+  /** hooks.yaml for this agent, or undefined when the user has none */
+  hooksFile(agentId: string): string | undefined;
   commandDirs(agentId: string): string[];
   emit(event: SidecarEvent): void;
   onStatus(status: EngineStatus): void;
@@ -225,6 +227,7 @@ export class EngineService {
       // undefined = the engine's default set; [] = the user turned them all
       // off, which must be honoured rather than read as "unset"
       builtInTools: agent.tools?.filter((name) => !HOST_TOOL_NAMES.has(name)),
+      hooksFile: this.deps.hooksFile(agent.id),
     };
   }
 

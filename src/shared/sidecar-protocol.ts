@@ -63,6 +63,8 @@ export interface TurnConfig {
   commandDirs?: string[];
   /** app-provided capabilities the engine should expose as tools */
   hostTools?: HostToolSpec[];
+  /** hooks.yaml — external programs that observe and can block tool calls */
+  hooksFile?: string;
   extras?: Record<string, unknown>;
 }
 

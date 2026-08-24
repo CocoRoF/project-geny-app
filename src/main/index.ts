@@ -14,6 +14,7 @@ import { openStore } from './db';
 import { EngineService } from './engine-service';
 import { BrowserHost } from './browser-tools';
 import { buildHostTools } from './host-tools';
+import { ensureHooksExample, resolveHooksFile } from './hooks-file';
 import { ensureStarters } from './personas';
 import { DEFAULT_SHORTCUT, QuickChat, quickChatPaths } from './quick-chat';
 import { forwardEvent, registerIpc } from './ipc';
@@ -73,6 +74,7 @@ async function boot(): Promise<void> {
   const paths = layout(resolved.dataRoot);
   // written once so the folder is never empty and the format documents itself
   ensureStarters(resolved.dataRoot);
+  ensureHooksExample(resolved.dataRoot);
   // user-authored capability folders — created empty so they are
   // discoverable in the file manager rather than documented-only
   for (const sub of ['skills', 'commands']) {
@@ -150,6 +152,7 @@ async function boot(): Promise<void> {
       })),
     // global first, then the agent's own — a per-agent skill shadows a
     // global one of the same id, which is the intuitive precedence
+    hooksFile: (id) => resolveHooksFile(resolved.dataRoot, resolveAgentDir(paths, id)),
     skillDirs: (id) => [join(paths.dataRoot, 'skills'), join(resolveAgentDir(paths, id), 'skills')],
     commandDirs: (id) => [join(paths.dataRoot, 'commands'), join(resolveAgentDir(paths, id), 'commands')],
     emit: (event) => forwardEvent(surfaces(), event),

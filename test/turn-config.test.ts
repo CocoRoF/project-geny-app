@@ -28,6 +28,7 @@ const service = new EngineService({
   secret: () => 'sk-test',
   agentDir: (id) => `/tmp/agents/${id}`,
   mcpFor: () => [{ name: 'files', command: 'npx', args: ['-y', 'server'] }],
+  hooksFile: () => undefined,
   skillDirs: () => ['/tmp/skills'],
   commandDirs: () => ['/tmp/commands'],
   emit: () => {},
