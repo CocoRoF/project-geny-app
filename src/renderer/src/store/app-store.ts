@@ -45,7 +45,7 @@ export interface PendingHitl {
 }
 
 export type TopView = 'agents' | 'library' | 'settings';
-export type AgentTab = 'chat' | 'files' | 'config';
+export type AgentTab = 'chat' | 'files' | 'memory' | 'config';
 
 interface AppState {
   view: TopView;

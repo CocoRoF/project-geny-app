@@ -12,6 +12,7 @@ import { detectCli } from './cli-detect';
 import { listDir, preview } from './fs-browse';
 import type { SidecarEvent } from '@shared/sidecar-protocol';
 import type { Store } from './db';
+import { readMemory, readMemoryNote, readTranscript } from './memory-browser';
 import { listPersonas, personaDir, savePersona } from './personas';
 import type { EngineService } from './engine-service';
 import type { Updater } from './updater';
@@ -26,6 +27,10 @@ export const CHANNELS = {
   engineStatus: 'engine:status',
   engineStart: 'engine:start',
   engineStatusEvent: 'engine:statusEvent',
+  memoryOverview: 'memory:overview',
+  memoryNote: 'memory:note',
+  memoryTranscript: 'memory:transcript',
+  memoryFolder: 'memory:openFolder',
   personasList: 'personas:list',
   personasSave: 'personas:save',
   personasApply: 'personas:applyTo',
@@ -97,6 +102,19 @@ export function registerIpc(deps: IpcDeps): void {
 
   ipcMain.handle(CHANNELS.engineStatus, () => deps.engine.getStatus());
   ipcMain.handle(CHANNELS.engineStart, () => deps.engine.start());
+
+  ipcMain.handle(CHANNELS.memoryOverview, (_e, agentId: string) =>
+    readMemory(deps.agentDir(agentId)),
+  );
+  ipcMain.handle(CHANNELS.memoryNote, (_e, agentId: string, notePath: string) =>
+    readMemoryNote(deps.agentDir(agentId), notePath),
+  );
+  ipcMain.handle(CHANNELS.memoryTranscript, (_e, agentId: string) =>
+    readTranscript(deps.agentDir(agentId)),
+  );
+  ipcMain.handle(CHANNELS.memoryFolder, async (_e, agentId: string) => {
+    await deps.shell.openPath(`${deps.agentDir(agentId)}/memory`);
+  });
 
   ipcMain.handle(CHANNELS.personasList, () => listPersonas(deps.paths.dataRoot));
   ipcMain.handle(CHANNELS.personasSave, (_e, input: Parameters<typeof savePersona>[1]) =>

@@ -101,6 +101,23 @@ export interface PersonaRecord {
   userDefined: boolean;
 }
 
+export interface MemoryNote {
+  path: string;
+  category: string;
+  title: string;
+  bytes: number;
+  modified: number;
+  preview: string;
+}
+
+export interface MemoryOverview {
+  root: string;
+  longTerm?: { path: string; bytes: number; modified: number; text: string };
+  notes: MemoryNote[];
+  categories: Array<{ id: string; count: number }>;
+  transcript?: { path: string; turns: number; bytes: number };
+}
+
 export interface GenyApi {
   app: {
     paths(): Promise<AppPaths>;
@@ -113,6 +130,14 @@ export interface GenyApi {
     status(): Promise<EngineStatus>;
     start(): Promise<EngineStatus>;
     onStatus(cb: (s: EngineStatus) => void): () => void;
+  };
+  memory: {
+    /** what this agent remembers — long-term note, structured notes, turns */
+    overview(agentId: string): Promise<MemoryOverview>;
+    note(agentId: string, path: string): Promise<{ path: string; text: string }>;
+    /** the short-term turn log — the only memory that exists early on */
+    transcript(agentId: string): Promise<Array<{ index: number; role: string; text: string; at?: number }>>;
+    openFolder(agentId: string): Promise<void>;
   };
   personas: {
     list(): Promise<PersonaRecord[]>;
