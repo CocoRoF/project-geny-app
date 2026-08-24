@@ -42,10 +42,11 @@ jobs:
         include:
           - os: ubuntu-22.04       # glibc floor: a newer runner links symbols
             target: linux-x64      # that older distros do not have
+          # one macOS runner builds BOTH arches (electron-builder.yml lists
+          # arm64 and x64 for the dmg target), so a second macos-13 job just
+          # rebuilt the same two dmgs and queued for a scarce runner
           - os: macos-14
             target: darwin-arm64
-          - os: macos-13
-            target: darwin-x64
           - os: windows-2022
             target: win32-x64
     runs-on: ${{ matrix.os }}
