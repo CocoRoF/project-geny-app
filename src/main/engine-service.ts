@@ -7,7 +7,7 @@
  * free of `import 'electron'` so it unit-tests in plain Node.
  */
 import { randomUUID } from 'node:crypto';
-import type { AgentRecord, EngineStatus } from '@shared/api-types';
+import type { AgentRecord, EngineStatus, StageInfo } from '@shared/api-types';
 import { defaultModel, TURN_TIMEOUT_SECONDS } from '@shared/models';
 import type { SidecarEvent, TurnConfig } from '@shared/sidecar-protocol';
 import { HOST_TOOL_NAMES } from '@shared/tool-catalogue';
@@ -21,6 +21,8 @@ export interface CapabilityReport {
   mcpServers: Array<{ name: string; tools: number; error?: string }>;
   skills: Array<{ id: string; name: string }>;
   slashCommands: string[];
+  /** the engine's 21 stages, as actually configured for this session */
+  stages: StageInfo[];
 }
 
 export interface EngineDeps {
@@ -177,6 +179,7 @@ export class EngineService {
         waiter({
           tools: (data.tools as string[]) ?? [],
           mcpServers: (data.mcpServers as CapabilityReport['mcpServers']) ?? [],
+          stages: (data.stages as CapabilityReport['stages']) ?? [],
           skills: (data.skills as CapabilityReport['skills']) ?? [],
           slashCommands: (data.slashCommands as string[]) ?? [],
         });
@@ -276,7 +279,9 @@ export class EngineService {
    *  report if the engine is down — the UI shows "engine not running"
    *  rather than a spinner that never ends. */
   async inspect(agentId: string): Promise<CapabilityReport> {
-    const empty: CapabilityReport = { tools: [], mcpServers: [], skills: [], slashCommands: [] };
+    const empty: CapabilityReport = {
+      tools: [], mcpServers: [], skills: [], slashCommands: [], stages: [],
+    };
     const daemon = this.daemon;
     if (!daemon?.running) return empty;
     const id = daemon.nextId('in');

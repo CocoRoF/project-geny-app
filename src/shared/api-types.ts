@@ -31,10 +31,20 @@ export interface McpServerRecord {
 
 /** What the engine actually loaded for a session — the honest answer to
  *  "is my MCP server / skill working?" */
+export interface StageInfo {
+  order: number | null;
+  name: string;
+  category?: string | null;
+  active: boolean;
+  strategies: Array<{ slot: string; current: string | null; available: string[] }>;
+}
+
 export interface CapabilityReport {
   tools: string[];
   mcpServers: Array<{ name: string; tools: number; error?: string }>;
   skills: Array<{ id: string; name: string }>;
+  /** the engine's 21 stages, as actually configured for this session */
+  stages: StageInfo[];
   slashCommands: string[];
 }
 

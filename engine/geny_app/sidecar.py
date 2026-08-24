@@ -356,10 +356,41 @@ class Daemon:
         """
         cid = str(cmd.get("id") or "")
         sid = str(cmd.get("session") or "")
-        report: dict[str, Any] = {"tools": [], "mcpServers": [], "skills": [], "slashCommands": []}
+        report: dict[str, Any] = {
+            "tools": [], "mcpServers": [], "skills": [], "slashCommands": [], "stages": [],
+        }
         session = self.sessions.get(sid)
         pipeline = getattr(session, "_pipeline", None) if session else None
         if pipeline is not None:
+            # The 21 stages, as configured. Reading the real pipeline is how a
+            # null requester or a missing guard becomes visible instead of
+            # being a surprise at the moment it matters.
+            try:
+                # describe() returns StageDescription objects, each carrying
+                # the strategy slots AND the alternatives available for them
+                for stage in pipeline.describe():
+                    report["stages"].append({
+                        "order": getattr(stage, "order", None),
+                        "name": getattr(stage, "name", "?"),
+                        "category": getattr(stage, "category", None),
+                        "active": bool(getattr(stage, "is_active", True)),
+                        "strategies": [
+                            {
+                                "slot": getattr(slot, "slot_name", "?"),
+                                "current": getattr(slot, "current_impl", None),
+                                "available": list(getattr(slot, "available_impls", []) or []),
+                            }
+                            for slot in (getattr(stage, "strategies", []) or [])
+                        ],
+                    })
+            except Exception as exc:
+                # never silent: an empty stage list is indistinguishable from
+                # "the pipeline has no stages", which is never true
+                emit({
+                    "type": "notice",
+                    "level": "warn",
+                    "message": f"파이프라인 단계를 읽지 못했습니다: {exc}",
+                })
             try:
                 registry = pipeline.tool_registry
                 names = getattr(registry, "list_names", None)

@@ -13,11 +13,13 @@ from typing import Any, Awaitable, Callable, Optional
 
 import uuid
 
+from geny_executor.stages.s15_hitl.interface import Requester
+
 from .host_tools import HostBridge
 from .protocol import emit, shrink as _shrinkable
 
 
-class AppRequester:
+class AppRequester(Requester):
     """Stage-15 Requester that asks the APP.
 
     Without one of these an ASK permission rule has nobody to ask, and the
@@ -30,6 +32,18 @@ class AppRequester:
 
     def __init__(self, host: "HostServices") -> None:
         self._host = host
+
+    # Strategy contract: `name` is abstract, and pipeline.describe() reads it
+    # off every slot. A requester without it installs fine and then breaks
+    # describe() with an AttributeError — which is how the pipeline view
+    # caught this.
+    @property
+    def name(self) -> str:
+        return "app_dialog"
+
+    @property
+    def description(self) -> str:
+        return "Asks the desktop app and waits for the user's decision"
 
     async def request(self, request: Any, state: Any = None) -> Any:
         from geny_executor.stages.s15_hitl.types import HITLDecision

@@ -74,6 +74,19 @@ for (const [family, names] of Object.entries(expectFamilies)) {
 }
 console.log('MCP:', JSON.stringify(report.mcpServers ?? []));
 
+if (report.stagesError) console.log('  stagesError:', report.stagesError);
+const stages = report.stages ?? [];
+console.log(`\nSTAGES (${stages.length}):`);
+for (const st of stages) {
+  const slots = st.strategies.map((s) => `${s.slot}=${s.current}`).join(' ');
+  console.log(`  ${String(st.order).padStart(2)} ${st.name.padEnd(14)} ${slots}`);
+}
+// the null HITL requester was invisible until someone read this
+const hitl = stages.find((s) => s.name === 'hitl');
+const requester = hitl?.strategies.find((s) => s.slot === 'requester')?.current;
+console.log(`\n  hitl requester = ${requester ?? '(none)'}`);
+if (stages.length !== 21) { console.log(`  ✗ expected 21 stages`); ok = false; }
+
 await app.close();
 console.log(`\ncapability probe: ${ok ? 'PASS' : 'FAIL'}`);
 process.exit(ok ? 0 : 1);

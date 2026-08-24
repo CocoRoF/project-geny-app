@@ -1,9 +1,10 @@
 import type { JSX } from 'react';
+import type { AgentRecord } from '@shared/api-types';
 import { useEffect, useState } from 'react';
 import type { CapabilityReport, McpServerRecord } from '@shared/api-types';
 import { useApp } from '../store/app-store';
 
-type Section = 'mcp' | 'capabilities' | 'folders' | 'knowledge';
+type Section = 'mcp' | 'capabilities' | 'folders' | 'knowledge' | 'pipeline';
 
 /** Everything that is a registry: MCP servers, and what the engine actually
  *  loaded for the selected agent. The second half matters more than the
@@ -19,6 +20,7 @@ export function LibraryView(): JSX.Element {
   const sections: Array<{ id: Section; label: string }> = [
     { id: 'mcp', label: 'MCP 서버' },
     { id: 'capabilities', label: '로드된 기능' },
+    { id: 'pipeline', label: '파이프라인' },
     { id: 'knowledge', label: '지식' },
     { id: 'folders', label: '스킬 · 명령어' },
   ];
@@ -42,6 +44,7 @@ export function LibraryView(): JSX.Element {
       <div className="min-w-0 flex-1 overflow-y-auto p-4 text-xs">
         {section === 'mcp' && <McpSection agent={agent} />}
         {section === 'capabilities' && <CapabilitiesSection agent={agent} />}
+        {section === 'pipeline' && <PipelineSection agent={agent} />}
         {section === 'knowledge' && <KnowledgeSection />}
         {section === 'folders' && <FoldersSection dataRoot={dataRoot} agentDir={agent?.dir} />}
       </div>
@@ -363,6 +366,90 @@ function KnowledgeSection(): JSX.Element {
           <div className="font-medium">{hit.title}</div>
           <div className="text-[10px] text-dim">{hit.path}</div>
           <p className="mt-1 leading-relaxed text-dim">{hit.snippet}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
+/**
+ * The 21 stages, as the engine actually configured them for this agent.
+ *
+ * Not decoration: reading this is how a null HITL requester and a dropped
+ * guard chain were found — both were invisible until someone looked at what
+ * the pipeline really contained rather than what the config said.
+ */
+function PipelineSection({ agent }: { agent: AgentRecord | null }): JSX.Element {
+  const [report, setReport] = useState<Awaited<ReturnType<typeof window.geny.capabilities.inspect>> | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = async (): Promise<void> => {
+    if (!agent) return;
+    setBusy(true);
+    try {
+      setReport(await window.geny.capabilities.inspect(agent.id));
+    } finally {
+      setBusy(false);
+    }
+  };
+  useEffect(() => {
+    void load();
+  }, [agent?.id]);
+
+  if (!agent) return <p className="text-xs text-dim">에이전트를 먼저 선택하세요.</p>;
+  const stages = report?.stages ?? [];
+
+  return (
+    <div className="flex flex-col gap-2 text-xs">
+      <div className="flex items-center gap-2">
+        <span className="text-dim">
+          {stages.length > 0 ? `${stages.length}개 단계` : '아직 읽지 못했습니다'}
+        </span>
+        <button
+          type="button"
+          className="rounded border border-line px-2 py-1 text-dim hover:text-fg"
+          disabled={busy}
+          onClick={() => void load()}
+        >
+          {busy ? '읽는 중…' : '다시 읽기'}
+        </button>
+      </div>
+
+      {stages.length === 0 && (
+        <p className="leading-relaxed text-dim">
+          파이프라인은 첫 대화에서 만들어집니다. 한 번 이야기한 뒤 다시 읽어보세요.
+        </p>
+      )}
+
+      {stages.map((stage) => (
+        <div
+          key={`${stage.order}-${stage.name}`}
+          className={`rounded border p-2 ${stage.active ? 'border-line' : 'border-line/40 opacity-50'}`}
+        >
+          <div className="flex items-baseline gap-2">
+            <span className="w-5 text-right tabular-nums text-dim">{stage.order}</span>
+            <span className="font-medium">{stage.name}</span>
+            {stage.category && <span className="text-[10px] text-dim">{stage.category}</span>}
+            {!stage.active && <span className="text-[10px] text-dim">비활성</span>}
+          </div>
+          {stage.strategies.length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-1 pl-7">
+              {stage.strategies.map((slot) => (
+                <span
+                  key={slot.slot}
+                  className="rounded border border-line px-1.5 py-0.5 text-[10px]"
+                  title={
+                    slot.available.length > 1
+                      ? `선택 가능: ${slot.available.join(', ')}`
+                      : undefined
+                  }
+                >
+                  {slot.slot}: <b className="text-accent">{slot.current ?? '없음'}</b>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       ))}
     </div>

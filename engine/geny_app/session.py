@@ -292,21 +292,28 @@ class AgentSession:
 
     def _install_requester(self, pipeline: Pipeline, requester: Any) -> None:
         """Replace stage 15's null requester so approvals raised there reach
-        the app too (the tool router is only one of the two paths)."""
+        the app too — the tool router is only one of the two paths.
+
+        Two traps, both silent: `get_stage` takes an ORDER, not a name, and
+        `_requester` is a read-only property over `_slots["requester"]` — so
+        assigning to it appears to succeed and changes nothing. The slot's
+        `strategy` is the real seat.
+        """
         try:
-            stage = pipeline.get_stage("hitl")
+            stage = next(
+                (st for st in pipeline.stages if type(st).__name__ == "HITLStage"),
+                None,
+            )
             if stage is None:
                 return
-            for attr in ("requester", "_requester"):
-                if hasattr(stage, attr):
-                    setattr(stage, attr, requester)
-                    return
-            slot = getattr(stage, "slots", None)
-            if slot is not None and hasattr(slot, "set"):
-                slot.set("requester", requester)
+            slots = getattr(stage, "_slots", None)
+            slot = slots.get("requester") if isinstance(slots, dict) else None
+            if slot is None:
+                return
+            slot.strategy = requester
         except Exception:
-            # a stage shape we do not recognise still leaves the tool-router
-            # path working, which covers the permission case
+            # an unrecognised stage shape still leaves the tool-router path
+            # working, which is what covers the permission case
             pass
 
     def _register_host_tools(self, pipeline: Pipeline) -> None:
