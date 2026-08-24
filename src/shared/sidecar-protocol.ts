@@ -22,7 +22,9 @@ export type SidecarCommand =
   | { id: string; op: 'hitl'; token: string; decision: HitlDecision }
   | { id: string; op: 'refresh'; session: string; config: TurnConfig }
   | { id: string; op: 'evict'; session: string }
-  | { id: string; op: 'inspect'; session: string };
+  | { id: string; op: 'inspect'; session: string }
+  /** the app's answer to a `host_tool_call` — mandatory, see HOST TOOLS */
+  | { id: string; op: 'host_tool_result'; callId: string; ok: boolean; result?: unknown; error?: string };
 
 export type HitlDecision = 'approve' | 'reject' | 'cancel';
 
@@ -59,6 +61,8 @@ export interface TurnConfig {
   /** directories scanned for SKILL.md files and slash commands */
   skillDirs?: string[];
   commandDirs?: string[];
+  /** app-provided capabilities the engine should expose as tools */
+  hostTools?: HostToolSpec[];
   extras?: Record<string, unknown>;
 }
 
@@ -85,7 +89,29 @@ export type SidecarEvent =
   | { id: string; type: 'notice'; level: 'info' | 'warn' | 'error'; message: string }
   | { id: string; type: 'done'; events: number }
   | { id: string; type: 'cancelled' }
-  | { id: string; type: 'error'; error: string; code?: string; trace?: string };
+  | { id: string; type: 'error'; error: string; code?: string; trace?: string }
+  /**
+   * HOST TOOLS — the engine asking the APP to do something only Electron
+   * can do. Without this direction nothing the desktop can do (screen
+   * capture, browser control, notifications, avatar, window control) can
+   * ever become an agent tool, which is what kept the whole connector-class
+   * feature set unbuildable. The app must always answer with
+   * `host_tool_result` carrying the same callId — an unanswered call blocks
+   * the tool, so failures are reported, never dropped.
+   */
+  | { id: string; type: 'host_tool_call'; callId: string; name: string; args: Record<string, unknown> };
+
+/**
+ * Host tools the app implements. The sidecar registers one engine-side Tool
+ * per entry, so adding a capability is: add it here, implement the handler
+ * in main, and it appears in the agent's tool list.
+ */
+export interface HostToolSpec {
+  name: string;
+  description: string;
+  /** JSON Schema for the tool input */
+  schema: { type: 'object'; properties: Record<string, unknown>; required?: string[] };
+}
 
 export type TerminalEventType = 'done' | 'cancelled' | 'error';
 export const isTerminal = (e: SidecarEvent): boolean =>

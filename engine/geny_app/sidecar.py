@@ -135,6 +135,7 @@ class Daemon:
         except Exception:
             pass
 
+        self.host.set_current_turn(turn_id)
         emit({"id": turn_id, "type": "started", "session": sid})
         count = 0
         budget = float(config.timeout_seconds or 0) or None
@@ -318,6 +319,15 @@ class Daemon:
                       "message": "prompt no longer pending"})
         elif op == "hitl":
             await self._hitl(cmd)
+        elif op == "host_tool_result":
+            ok = self.host.bridge.resolve(str(cmd.get("callId") or ""), {
+                "ok": bool(cmd.get("ok")),
+                "result": cmd.get("result"),
+                "error": cmd.get("error"),
+            })
+            if not ok:
+                emit({"id": cid, "type": "notice", "level": "warn",
+                      "message": "host tool result arrived after the call was gone"})
         elif op == "refresh":
             sid = str(cmd.get("session") or "")
             session = self.sessions.get(sid)
@@ -444,6 +454,8 @@ class Daemon:
               "message": f"hitl token not pending: {token}"})
 
     async def shutdown(self) -> None:
+        # anything waiting on the app must fail rather than hang forever
+        self.host.bridge.fail_all("engine is shutting down")
         for task in list(self._turns.values()):
             task.cancel()
         for sid in list(self.sessions):
@@ -459,6 +471,15 @@ class Daemon:
             "engine": getattr(geny_executor, "__version__", "?"),
             "python": sys.version.split()[0],
         })
+        # Open the host-tool loopback before any turn: the CLI backend needs
+        # the endpoint at pipeline-build time, and building it lazily inside a
+        # sync credential path is not possible.
+        try:
+            await self.host.bridge.ensure_endpoint()
+        except Exception as exc:
+            emit({"type": "notice", "level": "warn",
+                  "message": f"host tool bridge unavailable for CLI backends: {exc}"})
+
         reader = asyncio.StreamReader()
         loop = asyncio.get_running_loop()
         await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), sys.stdin)

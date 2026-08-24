@@ -10,6 +10,8 @@ import { randomUUID } from 'node:crypto';
 import type { AgentRecord, EngineStatus } from '@shared/api-types';
 import { defaultModel, TURN_TIMEOUT_SECONDS } from '@shared/models';
 import type { SidecarEvent, TurnConfig } from '@shared/sidecar-protocol';
+import type { HostTool } from './host-tools';
+import { hostToolSpecs } from './host-tools';
 import { locateRuntime, type LocateInput } from './runtime-locate';
 import { SidecarDaemon } from './sidecar';
 
@@ -37,6 +39,8 @@ export interface EngineDeps {
    *  that would be one write per token) */
   persistAssistant(agentId: string, text: string): void;
   log?: (line: string) => void;
+  /** capabilities only the app can perform, offered to the agent as tools */
+  hostTools?: HostTool[];
 }
 
 /**
@@ -123,7 +127,45 @@ export class EngineService {
     return this.status;
   }
 
+  /**
+   * Run an app-side tool the engine asked for and answer it.
+   *
+   * The answer is mandatory: the engine's HostTool awaits the reply, so a
+   * dropped answer hangs the agent's tool call instead of failing it. Every
+   * path here — unknown name, thrown handler — ends in a `host_tool_result`.
+   */
+  private async serveHostTool(event: Extract<SidecarEvent, { type: 'host_tool_call' }>): Promise<void> {
+    const daemon = this.daemon;
+    if (!daemon) return;
+    const reply = (ok: boolean, payload: { result?: unknown; error?: string }): void => {
+      try {
+        daemon.send({ id: daemon.nextId('ht'), op: 'host_tool_result', callId: event.callId, ok, ...payload });
+      } catch {
+        /* engine already gone — nothing left to answer */
+      }
+    };
+    const tool = (this.deps.hostTools ?? []).find((t) => t.spec.name === event.name);
+    if (!tool) {
+      reply(false, { error: `unknown host tool ${event.name}` });
+      return;
+    }
+    const agentId = this.turns.get(event.id)?.agentId ?? '';
+    try {
+      const result = await tool.handle(event.args ?? {}, {
+        agentId,
+        agentDir: this.deps.agentDir(agentId),
+      });
+      reply(true, { result });
+    } catch (err) {
+      reply(false, { error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
   private route(event: SidecarEvent): void {
+    if (event.type === 'host_tool_call') {
+      void this.serveHostTool(event);
+      return;
+    }
     if ('id' in event && event.type === 'meta') {
       const waiter = this.inspectWaiters.get(event.id);
       const data = event.data as Record<string, unknown>;
@@ -173,6 +215,7 @@ export class EngineService {
       mcpServers: this.deps.mcpFor(agent.id),
       skillDirs: this.deps.skillDirs(agent.id),
       commandDirs: this.deps.commandDirs(agent.id),
+      hostTools: hostToolSpecs(this.deps.hostTools ?? []),
     };
   }
 

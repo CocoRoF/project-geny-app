@@ -8,6 +8,8 @@ turn boundaries, aclose() on eviction.
 from __future__ import annotations
 
 import asyncio
+import json
+import sys
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -24,9 +26,28 @@ from geny_executor.tools.base import ToolContext
 
 from . import policy, state_store
 
+# What the agent can reach. Every entry here has its host service wired in
+# host.py — a tool whose service is missing answers with an error the user
+# cannot act on, which is worse than not offering it. Keep the two in step.
 DEFAULT_TOOLS = [
-    "Read", "Write", "Edit", "Bash", "Glob", "Grep", "TodoWrite",
-    "WebSearch", "WebFetch", "AskUserQuestion",
+    # files + shell, jailed to the agent workspace
+    "Read", "Write", "Edit", "Glob", "Grep", "Bash", "NotebookEdit",
+    # planning
+    "TodoWrite", "ExitPlanMode",
+    # web
+    "WebSearch", "WebFetch",
+    # asking the user (routed to the app's prompt UI)
+    "AskUserQuestion",
+    # background work — needs task_registry + task_runner
+    "TaskCreate", "TaskGet", "TaskList", "TaskOutput", "TaskUpdate", "TaskStop",
+    # schedules — needs cron_store + cron_runner
+    "CronCreate", "CronList", "CronDelete",
+    # delegation — needs agent_orchestrator + subagent_registry
+    "Agent",
+    # MCP resources — the pipeline's own manager
+    "ListMcpResources", "ReadMcpResource",
+    # discovery: lets the model find deferred tools instead of guessing
+    "ToolSearch",
 ]
 
 # manifest presets the engine actually ships
@@ -53,6 +74,8 @@ class SessionConfig:
     skill_dirs: list[str] = field(default_factory=list)
     command_dirs: list[str] = field(default_factory=list)
     extras: dict[str, Any] = field(default_factory=dict)
+    #: capabilities only Electron can perform, exposed to the agent as tools
+    host_tools: list[dict[str, Any]] = field(default_factory=list)
 
     @classmethod
     def from_json(cls, raw: dict[str, Any]) -> "SessionConfig":
@@ -74,6 +97,7 @@ class SessionConfig:
             skill_dirs=raw.get("skillDirs") or [],
             command_dirs=raw.get("commandDirs") or [],
             extras=raw.get("extras") or {},
+            host_tools=raw.get("hostTools") or [],
         )
 
 
@@ -188,7 +212,34 @@ class AgentSession:
         creds = CredentialBundle(by_provider={self.config.provider: self._credentials(workspace)})
         pipeline = await Pipeline.from_manifest_async(manifest, credentials=creds)
         pipeline.attach_runtime(tool_context=self._tool_context(workspace))
+        self._register_host_tools(pipeline)
         return pipeline
+
+    def _register_host_tools(self, pipeline: Pipeline) -> None:
+        """Expose the app's own capabilities as ordinary agent tools.
+
+        Registered as CORE, i.e. advertised to the model directly. Non-core
+        puts them behind progressive disclosure, and a probe showed the model
+        then burning a turn on ToolSearch queries that never resolve them —
+        the capability existed and was unreachable. An app capability the
+        user installed should be visible, not discoverable."""
+        specs = self.config.host_tools
+        if not specs or self._host is None:
+            return
+        bridge = getattr(self._host, "bridge", None)
+        if bridge is None:
+            return
+        try:
+            from .host_tools import build_host_tools
+
+            registry = pipeline.tool_registry
+            if registry is None:
+                return
+            for tool in build_host_tools(bridge, specs, self._host.current_turn_id):
+                registry.register(tool, core=True)
+        except Exception:
+            # a broken host-tool spec must never take down the session
+            pass
 
     def _credentials(self, workspace: Path) -> ProviderCredentials:
         """Provider credentials, plus the CLI-only extras that decide WHERE
@@ -222,6 +273,37 @@ class AgentSession:
         # backend `from_manifest_async` leaves `mcp_manager` empty on purpose
         # — the CLI owns its own MCP. Hand them over as `--mcp-config`
         # instead, or a server the user enabled would silently do nothing.
+        # The CLI cannot see engine-registered tools (it runs its own), so
+        # the app's host tools are offered to it the only way it accepts
+        # outside capabilities: as an MCP server pointed at our loopback
+        # bridge. Same tools, both backends.
+        if self.config.provider == "claude_code_cli" and self.config.host_tools and self._host is not None:
+            bridge = getattr(self._host, "bridge", None)
+            # the daemon opens this at startup, so it is just a read here
+            endpoint = getattr(bridge, "endpoint", None) if bridge is not None else None
+            if endpoint:
+                servers = dict((extras.get("mcp_config") or {}).get("mcpServers") or {})
+                servers["geny-host"] = {
+                    "command": sys.executable,
+                    "args": [
+                        "-I", "-X", "utf8", "-m", "geny_app.host_mcp",
+                        "--endpoint", endpoint,
+                        "--token", bridge.token,
+                        "--specs", json.dumps(self.config.host_tools, ensure_ascii=False),
+                    ],
+                }
+                extras["mcp_config"] = {"mcpServers": servers}
+                # The CLI gates MCP tools behind its own permission prompt,
+                # which nothing can answer under a piped host — a probe showed
+                # the model calling the tool and then reporting "I don't have
+                # permission". These are the APP's own capabilities, already
+                # constrained by their handlers (OpenPath stays in the agent
+                # dir, ReadUserFile is text-only), so allow them explicitly.
+                allow = list(extras.get("allow_tools") or [])
+                allow += [f"mcp__geny-host__{spec['name']}" for spec in self.config.host_tools
+                          if spec.get("name")]
+                extras["allow_tools"] = allow
+
         if self.config.mcp_servers and "mcp_config" not in extras:
             servers: dict[str, Any] = {}
             for entry in self.config.mcp_servers:

@@ -1,10 +1,10 @@
 /**
  * Capability probe — asks the RUNNING app what the engine actually loaded.
  *
- * Written because the README and the code disagreed: the engine ships 36
- * built-in tools, the app enables 10, and `capabilities.inspect` reports 0
- * until the first turn builds the pipeline. Reading either side alone gets
- * this wrong, so this asks the app.
+ * Written because README and code disagreed: the engine ships 90 built-in
+ * tool classes, the app enables a curated subset, and `capabilities.inspect`
+ * reports nothing until the first turn builds the pipeline. Reading either
+ * side alone gets this wrong, so this asks the app itself.
  *
  * Needs a model (claude_code_cli auth or an API key).
  * Run: env -u ELECTRON_RUN_AS_NODE xvfb-run -a node test/capability-probe.mjs
@@ -13,65 +13,67 @@ import { _electron as electron } from 'playwright-core';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 const env = { ...process.env, GENY_DATA_ROOT: mkdtempSync(join(tmpdir(), 'geny-cap-')) };
 delete env.ELECTRON_RUN_AS_NODE;
+
 const app = await electron.launch({ args: ['.', '--no-sandbox'], env });
 const win = await app.firstWindow();
 await win.waitForLoadState('domcontentloaded');
-const deadline = Date.now() + 120000;
-let st = await win.evaluate(() => window.geny.engine.status());
-while (st.state !== 'ready' && st.state !== 'failed' && Date.now() < deadline) {
-  await win.waitForTimeout(500); st = await win.evaluate(() => window.geny.engine.status());
+
+const deadline = Date.now() + 120_000;
+let status = await win.evaluate(() => window.geny.engine.status());
+while (status.state !== 'ready' && status.state !== 'failed' && Date.now() < deadline) {
+  await win.waitForTimeout(500);
+  status = await win.evaluate(() => window.geny.engine.status());
 }
-const agent = await win.evaluate(() => window.geny.agents.create({ name: 'cap', provider: 'claude_code_cli' }));
+if (status.state !== 'ready') {
+  console.error('✗ engine', status.state, status.error ?? '');
+  process.exit(1);
+}
+
+const agent = await win.evaluate(() =>
+  window.geny.agents.create({ name: 'cap', provider: 'claude_code_cli' }),
+);
+
 const before = await win.evaluate((id) => window.geny.capabilities.inspect(id), agent.id);
-console.log('BEFORE turn — tools:', (before.tools ?? []).length);
-// run one turn so the pipeline is actually built, then ask again
+console.log('before first turn — tools:', (before.tools ?? []).length);
+
+// the pipeline is built lazily, so one turn has to happen first
 await win.evaluate(async (id) => {
   const { turnId } = await window.geny.chat.send({ agentId: id, text: 'say OK' });
-  await new Promise((res) => {
-    const t = setTimeout(res, 180000);
+  await new Promise((resolve) => {
+    const timer = setTimeout(resolve, 180_000);
     const off = window.geny.chat.onEvent((e) => {
-      if (e.id === turnId && ['done','error','cancelled'].includes(e.type)) { clearTimeout(t); off(); res(); }
+      if (e.id === turnId && ['done', 'error', 'cancelled'].includes(e.type)) {
+        clearTimeout(timer);
+        off();
+        resolve();
+      }
     });
   });
 }, agent.id);
-const rep = await win.evaluate((id) => window.geny.capabilities.inspect(id), agent.id);
-console.log('TOOLS(' + (rep.tools?.length ?? 0) + '):', (rep.tools ?? []).join(' '));
-console.log('MCP:', JSON.stringify(rep.mcpServers ?? []));
-console.log('SKILLS:', JSON.stringify(rep.skills ?? []));
-console.log('COMMANDS:', JSON.stringify(rep.slashCommands ?? []));
-await app.close();
-import { _electron as electron } from 'playwright-core';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-const env = { ...process.env, GENY_DATA_ROOT: mkdtempSync(join(tmpdir(), 'geny-cap-')) };
-delete env.ELECTRON_RUN_AS_NODE;
-const app = await electron.launch({ args: ['.', '--no-sandbox'], env });
-const win = await app.firstWindow();
-await win.waitForLoadState('domcontentloaded');
-const deadline = Date.now() + 120000;
-let st = await win.evaluate(() => window.geny.engine.status());
-while (st.state !== 'ready' && st.state !== 'failed' && Date.now() < deadline) {
-  await win.waitForTimeout(500); st = await win.evaluate(() => window.geny.engine.status());
+
+const report = await win.evaluate((id) => window.geny.capabilities.inspect(id), agent.id);
+const tools = (report.tools ?? []).slice().sort();
+console.log(`\nTOOLS (${tools.length}):`);
+console.log('  ' + tools.join(' '));
+
+const expectFamilies = {
+  files: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'],
+  background: ['TaskCreate', 'TaskList'],
+  schedule: ['CronCreate', 'CronList'],
+  delegation: ['Agent'],
+  host: ['ScreenCapture', 'Notify', 'Say', 'Clipboard'],
+};
+let ok = true;
+for (const [family, names] of Object.entries(expectFamilies)) {
+  const missing = names.filter((n) => !tools.includes(n));
+  console.log(`  ${family.padEnd(11)} ${missing.length === 0 ? '✓' : '✗ missing ' + missing.join(',')}`);
+  if (missing.length) ok = false;
 }
-const agent = await win.evaluate(() => window.geny.agents.create({ name: 'cap', provider: 'claude_code_cli' }));
-const before = await win.evaluate((id) => window.geny.capabilities.inspect(id), agent.id);
-console.log('BEFORE turn — tools:', (before.tools ?? []).length);
-// run one turn so the pipeline is actually built, then ask again
-await win.evaluate(async (id) => {
-  const { turnId } = await window.geny.chat.send({ agentId: id, text: 'say OK' });
-  await new Promise((res) => {
-    const t = setTimeout(res, 180000);
-    const off = window.geny.chat.onEvent((e) => {
-      if (e.id === turnId && ['done','error','cancelled'].includes(e.type)) { clearTimeout(t); off(); res(); }
-    });
-  });
-}, agent.id);
-const rep = await win.evaluate((id) => window.geny.capabilities.inspect(id), agent.id);
-console.log('TOOLS(' + (rep.tools?.length ?? 0) + '):', (rep.tools ?? []).join(' '));
-console.log('MCP:', JSON.stringify(rep.mcpServers ?? []));
-console.log('SKILLS:', JSON.stringify(rep.skills ?? []));
-console.log('COMMANDS:', JSON.stringify(rep.slashCommands ?? []));
+console.log('MCP:', JSON.stringify(report.mcpServers ?? []));
+
 await app.close();
+console.log(`\ncapability probe: ${ok ? 'PASS' : 'FAIL'}`);
+process.exit(ok ? 0 : 1);

@@ -5,10 +5,11 @@
  */
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { app, BrowserWindow, ipcMain, safeStorage, shell } from 'electron';
+import { app, BrowserWindow, clipboard, desktopCapturer, ipcMain, Notification, safeStorage, screen, shell } from 'electron';
 import { agentDir as resolveAgentDir, layout, resolveDataRoot } from './data-root';
 import { openStore } from './db';
 import { EngineService } from './engine-service';
+import { buildHostTools } from './host-tools';
 import { forwardEvent, registerIpc } from './ipc';
 import { createSecretStore } from './secrets';
 import { Updater } from './updater';
@@ -70,7 +71,37 @@ async function boot(): Promise<void> {
     ? join(repoRoot, 'engine', '.venv', 'Scripts', 'python.exe')
     : join(repoRoot, 'engine', '.venv', 'bin', 'python');
 
+  // The app's own capabilities, offered to the agent as tools. This is the
+  // only path by which anything Electron can do reaches the engine.
+  const hostTools = buildHostTools({
+    captureScreen: async () => {
+      const { width, height } = screen.getPrimaryDisplay().size;
+      const sources = await desktopCapturer.getSources({
+        types: ['screen'],
+        thumbnailSize: { width, height },
+      });
+      const shot = sources[0]?.thumbnail;
+      if (!shot || shot.isEmpty()) throw new Error('screen capture unavailable');
+      const size = shot.getSize();
+      return { mime: 'image/png', base64: shot.toPNG().toString('base64'), ...size };
+    },
+    notify: ({ title, body }) => {
+      if (Notification.isSupported()) new Notification({ title, body }).show();
+    },
+    clipboardRead: () => clipboard.readText(),
+    clipboardWrite: (text) => clipboard.writeText(text),
+    openPath: async (target) => {
+      await shell.openPath(target);
+    },
+    say: ({ agentId, level, message }) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('chat:hostSay', { agentId, level, message });
+      }
+    },
+  });
+
   engine = new EngineService({
+    hostTools,
     cwd: isDev ? repoRoot : process.resourcesPath,
     locate: {
       installRoot: paths.runtime,
