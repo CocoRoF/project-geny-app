@@ -58,22 +58,7 @@ export function ChatPane(): JSX.Element {
   }
 
   return (
-    <section className="flex min-w-0 flex-1 flex-col">
-      <div className="flex items-center gap-2 border-b border-line px-4 py-2">
-        <h1 className="text-sm font-medium">{agent.name}</h1>
-        <span className="text-[11px] text-dim">
-          {agent.provider}
-          {agent.model ? ` · ${agent.model}` : ''}
-        </span>
-        <button
-          type="button"
-          className="ml-auto text-[11px] text-dim underline decoration-dotted hover:text-fg"
-          onClick={() => void window.geny.app.openPath(`${agent.dir}/workspace`)}
-        >
-          워크스페이스 열기
-        </button>
-      </div>
-
+    <div className="flex min-h-0 flex-1 flex-col">
       <ApiKeyGate provider={agent.provider} />
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
@@ -146,6 +131,6 @@ export function ChatPane(): JSX.Element {
           </button>
         )}
       </div>
-    </section>
+    </div>
   );
 }

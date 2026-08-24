@@ -1,0 +1,77 @@
+appId: dev.geny.app
+productName: Geny
+copyright: Apache-2.0
+directories:
+  output: release
+  buildResources: build
+
+# The renderer/main/preload bundles plus the baked Python tree. `resources/`
+# is copied verbatim: the app resolves <resources>/python at runtime and
+# copies it into the writable data root on first use (see runtime-locate.ts).
+files:
+  - out/**
+  - package.json
+  - '!node_modules/**'
+extraResources:
+  - from: resources/python
+    to: python
+  - from: resources/RUNTIME_VERSION
+    to: RUNTIME_VERSION
+
+asar: true
+# Never compress the Python tree into the asar-unpacked path: thousands of
+# tiny .py files decompress far slower than they read.
+compression: normal
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  # unsigned for now — the README tells the user to right-click → Open once
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  # unsigned — SmartScreen shows "more info → run anyway" on first launch
+  signAndEditExecutable: true
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  category: Development
+  # chrome-sandbox needs mode 4755 owned by root or Electron aborts with
+  # SIGTRAP on launch; the deb postinst sets it, AppImage runs unprivileged
+  # so electron-builder's own wrapper handles it.
+  desktop:
+    entry:
+      Name: Geny
+      Categories: Development;Utility;
+
+deb:
+  depends:
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0
+    - libsecret-1-0
+
+publish:
+  provider: github
+  releaseType: release

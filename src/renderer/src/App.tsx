@@ -1,11 +1,39 @@
 import { useEffect } from 'react';
 import { AgentSidebar } from './components/AgentSidebar';
-import { ChatPane } from './components/ChatPane';
+import { AgentWorkspace } from './components/AgentWorkspace';
 import { EngineBanner } from './components/EngineBanner';
+import { SettingsView } from './components/SettingsView';
 import { useApp } from './store/app-store';
 import type { JSX } from 'react';
 
+function ActivityRail(): JSX.Element {
+  const view = useApp((s) => s.view);
+  const setView = useApp((s) => s.setView);
+  const items = [
+    { id: 'agents' as const, glyph: '◆', label: '에이전트' },
+    { id: 'settings' as const, glyph: '⚙', label: '설정' },
+  ];
+  return (
+    <nav className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-line bg-panel py-2">
+      {items.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          title={item.label}
+          onClick={() => setView(item.id)}
+          className={`flex h-9 w-9 items-center justify-center rounded text-base ${
+            view === item.id ? 'bg-accent/20 text-accent' : 'text-dim hover:bg-white/5'
+          }`}
+        >
+          {item.glyph}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
 export function App(): JSX.Element {
+  const view = useApp((s) => s.view);
   const setEngine = useApp((s) => s.setEngine);
   const setAgents = useApp((s) => s.setAgents);
   const setPaths = useApp((s) => s.setPaths);
@@ -27,17 +55,15 @@ export function App(): JSX.Element {
     <div className="flex h-full w-full flex-col">
       <EngineBanner />
       <div className="flex min-h-0 flex-1">
-        {/* activity rail — Agents only in M0; Memory/Library/Help land in M7/M10 */}
-        <nav className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-line bg-panel py-2">
-          <div
-            className="flex h-9 w-9 items-center justify-center rounded bg-accent/20 text-accent"
-            title="Agents"
-          >
-            ◆
-          </div>
-        </nav>
-        <AgentSidebar />
-        <ChatPane />
+        <ActivityRail />
+        {view === 'agents' ? (
+          <>
+            <AgentSidebar />
+            <AgentWorkspace />
+          </>
+        ) : (
+          <SettingsView />
+        )}
       </div>
     </div>
   );

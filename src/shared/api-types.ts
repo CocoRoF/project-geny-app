@@ -23,6 +23,14 @@ export interface StoredMessage {
   createdAt: number;
 }
 
+export interface CliInfo {
+  found: boolean;
+  path?: string;
+  version?: string;
+  via?: 'path' | 'known-location' | 'login-shell';
+  error?: string;
+}
+
 export interface EngineStatus {
   state: 'stopped' | 'starting' | 'ready' | 'failed';
   protocol?: number;
@@ -62,6 +70,11 @@ export interface GenyApi {
   secrets: {
     setApiKey(provider: string, key: string): Promise<void>;
     hasApiKey(provider: string): Promise<boolean>;
+    clearApiKey(provider: string): Promise<void>;
+    backend(): Promise<'keychain' | 'file'>;
+  };
+  cli: {
+    detect(): Promise<CliInfo>;
   };
   chat: {
     /** conversation replayed from the store — survives an app restart */

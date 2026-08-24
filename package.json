@@ -16,7 +16,8 @@
     "engine:smoke": "node scripts/engine-smoke.mjs",
     "bundle:python": "node scripts/bundle-python.mjs",
     "pack": "npm run build && electron-builder --dir",
-    "dist": "npm run build && npm run bundle:python && electron-builder"
+    "dist": "npm run build && node scripts/bundle-python.mjs && node scripts/verify-bundle.mjs && electron-builder",
+    "verify:bundle": "node scripts/verify-bundle.mjs"
   },
   "dependencies": {
     "electron-updater": "^6.3.9"
@@ -39,5 +40,9 @@
     "vite": "^6.0.7",
     "vitest": "^2.1.8",
     "zustand": "^5.0.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CocoRoF/project-geny-app.git"
   }
 }

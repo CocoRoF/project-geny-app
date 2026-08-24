@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: astral-sh/setup-uv@v5
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+
+      # The engine is half the app; a PR that breaks the sidecar protocol
+      # must fail here, not in someone's installer.
+      - name: Create engine venv
+        run: node scripts/engine-venv.mjs
+      - name: Sidecar protocol smoke
+        run: node scripts/engine-smoke.mjs
+      - name: Contract tests
+        run: npm test
+
+      # Electron needs a display and, on Linux, a SUID chrome-sandbox that a
+      # CI container cannot provide — xvfb + --no-sandbox is the standard
+      # combination and is what the E2E scripts already expect.
+      - name: App launch E2E
+        run: xvfb-run -a node test/app-launch.mjs

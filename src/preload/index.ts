@@ -28,6 +28,11 @@ const api: GenyApi = {
   secrets: {
     setApiKey: (provider, key) => ipcRenderer.invoke('secrets:setApiKey', provider, key),
     hasApiKey: (provider) => ipcRenderer.invoke('secrets:hasApiKey', provider),
+    clearApiKey: (provider) => ipcRenderer.invoke('secrets:clearApiKey', provider),
+    backend: () => ipcRenderer.invoke('secrets:backend'),
+  },
+  cli: {
+    detect: () => ipcRenderer.invoke('cli:detect'),
   },
   chat: {
     history: (agentId) => ipcRenderer.invoke('chat:history', agentId),

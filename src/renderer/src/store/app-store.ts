@@ -37,7 +37,12 @@ export interface PendingHitl {
   detail: unknown;
 }
 
+export type TopView = 'agents' | 'settings';
+export type AgentTab = 'chat' | 'config';
+
 interface AppState {
+  view: TopView;
+  tab: AgentTab;
   engine: EngineStatus;
   agents: AgentRecord[];
   activeAgentId: string | null;
@@ -48,6 +53,9 @@ interface AppState {
   dataRoot: string;
   portable: boolean;
 
+  setView(v: TopView): void;
+  setTab(t: AgentTab): void;
+  patchAgent(a: AgentRecord): void;
   setEngine(s: EngineStatus): void;
   setAgents(a: AgentRecord[]): void;
   selectAgent(id: string | null): void;
@@ -63,6 +71,8 @@ interface AppState {
 const emptyEntries: ChatEntry[] = [];
 
 export const useApp = create<AppState>((set, get) => ({
+  view: 'agents',
+  tab: 'chat',
   engine: { state: 'stopped' },
   agents: [],
   activeAgentId: null,
@@ -73,6 +83,10 @@ export const useApp = create<AppState>((set, get) => ({
   dataRoot: '',
   portable: false,
 
+  setView: (view) => set({ view }),
+  setTab: (tab) => set({ tab }),
+  patchAgent: (agent) =>
+    set((s) => ({ agents: s.agents.map((a) => (a.id === agent.id ? agent : a)) })),
   setEngine: (engine) => set({ engine }),
   setAgents: (agents) =>
     set((s) => ({ agents, activeAgentId: s.activeAgentId ?? agents[0]?.id ?? null })),

@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import type { BrowserWindow, IpcMain, Shell } from 'electron';
 import type { AgentRecord, AppPaths } from '@shared/api-types';
 import { defaultModel } from '@shared/models';
+import { detectCli } from './cli-detect';
 import type { SidecarEvent } from '@shared/sidecar-protocol';
 import type { Store } from './db';
 import type { EngineService } from './engine-service';
@@ -25,6 +26,9 @@ export const CHANNELS = {
   agentsRemove: 'agents:remove',
   secretsSet: 'secrets:setApiKey',
   secretsHas: 'secrets:hasApiKey',
+  secretsClear: 'secrets:clearApiKey',
+  secretsBackend: 'secrets:backend',
+  cliDetect: 'cli:detect',
   chatHistory: 'chat:history',
   chatSend: 'chat:send',
   chatCancel: 'chat:cancel',
@@ -114,6 +118,18 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNELS.secretsHas, (_e, provider: string) =>
     deps.secrets.has(`apiKey:${provider}`),
   );
+
+  ipcMain.handle(CHANNELS.secretsClear, (_e, provider: string) => {
+    deps.secrets.set(`apiKey:${provider}`, '');
+  });
+  ipcMain.handle(CHANNELS.secretsBackend, () => deps.secrets.backend);
+  // cached: the login-shell probe spawns a shell, which is slow enough to
+  // notice if every render asked
+  let cliCache: Promise<unknown> | null = null;
+  ipcMain.handle(CHANNELS.cliDetect, () => {
+    cliCache ??= detectCli('claude');
+    return cliCache;
+  });
 
   ipcMain.handle(CHANNELS.chatSend, async (_e, input: { agentId: string; text: string }) => {
     const agent = agentById(input.agentId);
