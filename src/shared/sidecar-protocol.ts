@@ -73,6 +73,9 @@ export type SidecarEvent =
   | { id: string; type: 'chunk'; text: string }
   /** tool lifecycle, already normalized for the UI */
   | { id: string; type: 'tool'; phase: 'start' | 'result' | 'error'; name: string; toolUseId?: string; payload?: unknown }
+  /** delegation boundary — lets the UI draw a subagent tree instead of
+   *  making the user infer it from raw events */
+  | { id: string; type: 'agent'; phase: 'start' | 'end'; name: string; parentToolUseId?: string; detail?: unknown }
   /** AskUserQuestion → must be answered with `prompt_reply` */
   | { id: string; type: 'prompt'; promptId: string; question: string; options?: string[]; timeoutSeconds?: number }
   /** permission / plan approval → must be answered with `hitl` */

@@ -7,10 +7,13 @@ import { randomUUID } from 'node:crypto';
 import type { BrowserWindow, IpcMain, Shell } from 'electron';
 import type { AgentRecord, AppPaths } from '@shared/api-types';
 import { defaultModel } from '@shared/models';
+import { join } from 'node:path';
 import { detectCli } from './cli-detect';
+import { listDir, preview } from './fs-browse';
 import type { SidecarEvent } from '@shared/sidecar-protocol';
 import type { Store } from './db';
 import type { EngineService } from './engine-service';
+import type { Updater } from './updater';
 import type { Layout } from './data-root';
 import type { SecretStore } from './secrets';
 
@@ -36,6 +39,13 @@ export const CHANNELS = {
   mcpForAgent: 'mcp:forAgent',
   mcpSetForAgent: 'mcp:setForAgent',
   capabilitiesInspect: 'capabilities:inspect',
+  filesList: 'files:list',
+  filesPreview: 'files:preview',
+  filesReveal: 'files:reveal',
+  updateCheck: 'update:check',
+  updateState: 'update:state',
+  onboardingDone: 'onboarding:done',
+  onboardingComplete: 'onboarding:complete',
   chatHistory: 'chat:history',
   chatSend: 'chat:send',
   chatCancel: 'chat:cancel',
@@ -51,6 +61,7 @@ export interface IpcDeps {
   store: Store;
   secrets: SecretStore;
   engine: EngineService;
+  updater: Updater;
   layout: Layout;
   paths: AppPaths;
   agentDir(agentId: string): string;
@@ -169,6 +180,29 @@ export function registerIpc(deps: IpcDeps): void {
     deps.engine.evict(agentId);
   });
   ipcMain.handle(CHANNELS.capabilitiesInspect, (_e, agentId: string) => deps.engine.inspect(agentId));
+
+  // the agent's own folders are the only readable roots — the renderer
+  // cannot widen this by sending a crafted path
+  const agentRoots = (agentId: string): string[] => {
+    const dir = deps.agentDir(agentId);
+    return ['workspace', 'memory', 'artifacts', 'sessions'].map((sub) => join(dir, sub));
+  };
+  ipcMain.handle(CHANNELS.filesList, (_e, agentId: string, path?: string) =>
+    listDir(path || join(deps.agentDir(agentId), 'workspace'), agentRoots(agentId)),
+  );
+  ipcMain.handle(CHANNELS.filesPreview, (_e, agentId: string, path: string) =>
+    preview(path, agentRoots(agentId)),
+  );
+  ipcMain.handle(CHANNELS.filesReveal, async (_e, path: string) => {
+    await deps.shell.openPath(path);
+  });
+
+  ipcMain.handle(CHANNELS.updateCheck, () => deps.updater.check());
+  ipcMain.handle(CHANNELS.updateState, () => deps.updater.current);
+  ipcMain.handle(CHANNELS.onboardingDone, () => deps.store.settings.get('onboarding.done') === '1');
+  ipcMain.handle(CHANNELS.onboardingComplete, () => {
+    deps.store.settings.set('onboarding.done', '1');
+  });
 
   ipcMain.handle(CHANNELS.chatSend, async (_e, input: { agentId: string; text: string }) => {
     const agent = agentById(input.agentId);

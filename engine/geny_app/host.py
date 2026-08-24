@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
 from .protocol import emit
@@ -23,6 +24,9 @@ class HostServices:
     def __init__(self) -> None:
         self._prompts: dict[str, asyncio.Future[Optional[str]]] = {}
         self._turn_of_prompt: dict[str, str] = {}
+        #: long-lived per-session objects (task runner, cron store) — they
+        #: must outlive a single turn or scheduled work restarts every time
+        self._shared: dict[str, Any] = {}
 
     # ── AskUserQuestion → UI → back ────────────────────────────────
     def _question_handler(self, turn_id: str) -> Callable[..., Awaitable[str]]:
@@ -77,6 +81,64 @@ class HostServices:
             if fut is not None and not fut.done():
                 fut.set_result(None)
 
+    # ── background work: tasks and cron ────────────────────────────
+    def _background(self, session: Any) -> dict[str, Any]:
+        """Task* and Cron* tools need a registry, a runner and a store.
+
+        The engine ships all three; the app only has to give them somewhere
+        to live. Cron state is a file under the agent dir so a schedule
+        survives a restart — a reminder that silently forgets is worse than
+        no reminder.
+        """
+        out: dict[str, Any] = {}
+        agent_dir = Path(session.config.agent_dir)
+        try:
+            from geny_executor.runtime.task_runner import BackgroundTaskRunner
+            from geny_executor.runtime.task_executors import LocalAgentExecutor, LocalBashExecutor
+
+            key = f"tasks:{session.session_id}"
+            runner = self._shared.get(key)
+            if runner is None:
+                runner = BackgroundTaskRunner()
+                self._shared[key] = runner
+            out["task_runner"] = runner
+            registry = getattr(runner, "registry", None)
+            if registry is not None:
+                out["task_registry"] = registry
+            out.setdefault("task_executors", {
+                "bash": LocalBashExecutor(),
+                "agent": LocalAgentExecutor(),
+            })
+        except Exception:
+            pass
+
+        try:
+            from geny_executor.cron.store_impl.file_backed import FileBackedCronJobStore
+
+            key = f"cron:{session.session_id}"
+            store = self._shared.get(key)
+            if store is None:
+                cron_dir = agent_dir / "cron"
+                cron_dir.mkdir(parents=True, exist_ok=True)
+                store = FileBackedCronJobStore(str(cron_dir / "jobs.json"))
+                self._shared[key] = store
+            out["cron_store"] = store
+        except Exception:
+            pass
+        return out
+
+    def has_scheduled_work(self, session_id: str) -> bool:
+        """Whether this session has cron jobs — idle eviction must not drop a
+        session that is supposed to fire something later."""
+        store = self._shared.get(f"cron:{session_id}")
+        if store is None:
+            return False
+        try:
+            listing = getattr(store, "list", None)
+            return bool(listing and listing())
+        except Exception:
+            return False
+
     # ── the extras dict ────────────────────────────────────────────
     def build_extras(self, session: Any, turn_id: str = "") -> dict[str, Any]:
         cfg = session.config
@@ -84,4 +146,6 @@ class HostServices:
         extras["question_handler"] = self._question_handler(turn_id)
         # WebSearch: ddgs needs no key; the app may inject brave/tavily later
         extras.setdefault("web_search", {"backend": "ddgs"})
+        for key, value in self._background(session).items():
+            extras.setdefault(key, value)
         return extras

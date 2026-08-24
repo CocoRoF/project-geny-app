@@ -67,6 +67,23 @@ export function ChatPane(): JSX.Element {
             <div className="mb-1 text-[10px] uppercase tracking-widest text-dim">
               {entry.role === 'user' ? '나' : 'agent'}
             </div>
+            {entry.delegations.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-1">
+                {entry.delegations.map((d, i) => (
+                  <span
+                    key={`${d.name}-${i}`}
+                    className={`rounded border px-1.5 py-0.5 text-[10px] ${
+                      d.phase === 'end'
+                        ? 'border-emerald-500/30 text-emerald-300'
+                        : 'border-amber-500/30 text-amber-300'
+                    }`}
+                    title="위임된 서브에이전트"
+                  >
+                    ⑂ {d.name}
+                  </span>
+                ))}
+              </div>
+            )}
             {entry.tools.length > 0 && (
               <div className="mb-2 flex flex-col gap-1">
                 {entry.tools.map((tool, i) => (

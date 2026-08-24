@@ -36,6 +36,22 @@ export interface CapabilityReport {
   slashCommands: string[];
 }
 
+export interface DirEntry {
+  name: string;
+  path: string;
+  isDir: boolean;
+  size: number;
+  modified: number;
+}
+
+export interface FilePreview {
+  path: string;
+  kind: 'text' | 'image' | 'binary';
+  content: string;
+  size: number;
+  truncated: boolean;
+}
+
 export interface StoredMessage {
   role: 'user' | 'assistant' | 'system';
   text: string;
@@ -47,6 +63,13 @@ export interface CliInfo {
   path?: string;
   version?: string;
   via?: 'path' | 'known-location' | 'login-shell';
+  error?: string;
+}
+
+export interface UpdateState {
+  status: 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'unsupported' | 'error';
+  version?: string;
+  percent?: number;
   error?: string;
 }
 
@@ -106,6 +129,21 @@ export interface GenyApi {
   capabilities: {
     /** ask the running engine what a session actually loaded */
     inspect(agentId: string): Promise<CapabilityReport>;
+  };
+  update: {
+    check(): Promise<UpdateState>;
+    state(): Promise<UpdateState>;
+  };
+  onboarding: {
+    /** false until the user has finished first-run setup */
+    done(): Promise<boolean>;
+    complete(): Promise<void>;
+  };
+  files: {
+    /** list a folder inside the agent's own dirs (rejects paths outside) */
+    list(agentId: string, path?: string): Promise<DirEntry[]>;
+    preview(agentId: string, path: string): Promise<FilePreview>;
+    reveal(path: string): Promise<void>;
   };
   chat: {
     /** conversation replayed from the store — survives an app restart */

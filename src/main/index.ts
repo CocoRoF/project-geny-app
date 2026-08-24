@@ -11,6 +11,7 @@ import { openStore } from './db';
 import { EngineService } from './engine-service';
 import { forwardEvent, registerIpc } from './ipc';
 import { createSecretStore } from './secrets';
+import { Updater } from './updater';
 
 const isDev = !app.isPackaged;
 
@@ -104,6 +105,15 @@ async function boot(): Promise<void> {
     },
   });
 
+  const updater = new Updater({
+    isPackaged: app.isPackaged,
+    platform: process.platform,
+    window: () => mainWindow,
+    onState: (state) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update:state', state);
+    },
+  });
+
   registerIpc({
     ipcMain,
     shell,
@@ -111,6 +121,7 @@ async function boot(): Promise<void> {
     store,
     secrets,
     engine,
+    updater,
     layout: paths,
     paths: { dataRoot: resolved.dataRoot, portable: resolved.portable },
     agentDir: (id) => resolveAgentDir(paths, id),

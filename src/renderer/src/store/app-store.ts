@@ -14,11 +14,18 @@ export interface ToolCard {
   payload?: unknown;
 }
 
+export interface AgentActivity {
+  name: string;
+  phase: 'start' | 'end';
+}
+
 export interface ChatEntry {
   id: string;
   role: 'user' | 'assistant' | 'system';
   text: string;
   tools: ToolCard[];
+  /** subagents this turn delegated to, in order */
+  delegations: AgentActivity[];
   /** set once the turn closed; 'error' keeps the reason visible */
   outcome?: 'done' | 'cancelled' | 'error';
   error?: string;
@@ -38,7 +45,7 @@ export interface PendingHitl {
 }
 
 export type TopView = 'agents' | 'library' | 'settings';
-export type AgentTab = 'chat' | 'config';
+export type AgentTab = 'chat' | 'files' | 'config';
 
 interface AppState {
   view: TopView;
@@ -105,6 +112,7 @@ export const useApp = create<AppState>((set, get) => ({
             role: m.role,
             text: m.text,
             tools: [],
+            delegations: [],
             outcome: m.role === 'assistant' ? ('done' as const) : undefined,
           })),
         },
@@ -117,7 +125,7 @@ export const useApp = create<AppState>((set, get) => ({
         ...s.entries,
         [agentId]: [
           ...(s.entries[agentId] ?? emptyEntries),
-          { id: `u-${Date.now()}`, role: 'user', text, tools: [] },
+          { id: `u-${Date.now()}`, role: 'user', text, tools: [], delegations: [] },
         ],
       },
     })),
@@ -129,7 +137,7 @@ export const useApp = create<AppState>((set, get) => ({
         ...s.entries,
         [agentId]: [
           ...(s.entries[agentId] ?? emptyEntries),
-          { id: turnId, role: 'assistant', text: '', tools: [] },
+          { id: turnId, role: 'assistant', text: '', tools: [], delegations: [] },
         ],
       },
     })),
@@ -172,6 +180,15 @@ export const useApp = create<AppState>((set, get) => ({
           if (at >= 0) tools[at] = { ...tools[at]!, ...card };
           else tools.push(card);
           return { ...e, tools };
+        });
+        break;
+      case 'agent':
+        patch((e) => {
+          const delegations = [...e.delegations];
+          const at = delegations.findIndex((d) => d.name === event.name && d.phase === 'start');
+          if (event.phase === 'end' && at >= 0) delegations[at] = { ...delegations[at]!, phase: 'end' };
+          else delegations.push({ name: event.name, phase: event.phase });
+          return { ...e, delegations };
         });
         break;
       case 'usage':

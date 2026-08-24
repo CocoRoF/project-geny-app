@@ -37,6 +37,11 @@ _TOOL_RESULT = {"api.tool_result", "tool.result", "tool.complete"}
 _TOOL_ERROR = {"tool.error", "tool.failed"}
 _USAGE_EVENTS = {"token.usage", "api.usage", "token.recorded"}
 _HITL_EVENTS = {"hitl.request"}
+# delegation: the engine reports orchestration boundaries, and subagent work
+# arrives with a parent tool_use_id. Forwarding those raw leaves the UI to
+# guess the tree; naming them lets it draw one.
+_AGENT_START = {"agent.orchestrate_start", "agent.delegate_start", "subagent.start"}
+_AGENT_END = {"agent.orchestrate_complete", "agent.delegate_complete", "subagent.complete"}
 # run_stream does NOT raise on engine failure — it yields these and then ends
 # normally. Without watching them a failed turn closes as `done` and the UI
 # shows a silent success (found by tracing a keyless turn).
@@ -87,12 +92,16 @@ class Daemon:
             await session.aclose()
 
     async def evict_idle(self) -> None:
+        """Drop sessions nobody has used. A session with cron jobs is NOT
+        idle — evicting it would silently cancel scheduled work."""
         cutoff = time.time() - IDLE_EVICT_SECONDS
+        busy = {self._turns[t] and t for t in self._turns}
         for sid, session in list(self.sessions.items()):
-            if session.last_used < cutoff and sid not in {
-                t for t in self._turns
-            }:
-                await self.evict(sid)
+            if session.last_used >= cutoff or sid in busy:
+                continue
+            if self.host.has_scheduled_work(sid):
+                continue
+            await self.evict(sid)
 
     # ── one turn ───────────────────────────────────────────────────
     async def run_turn(self, cmd: dict[str, Any]) -> None:
@@ -222,6 +231,21 @@ class Daemon:
                     "kind": str(_pick(data, "kind", "reason") or "approval"),
                     "detail": shrink(data, 2000),
                 })
+
+        if name in _AGENT_START:
+            emit({
+                "id": turn_id, "type": "agent", "phase": "start",
+                "name": str(_pick(data, "agent", "name", "role") or "subagent"),
+                "parentToolUseId": _pick(data, "parent_tool_use_id", "tool_use_id"),
+                "detail": shrink(data, 800),
+            })
+        elif name in _AGENT_END:
+            emit({
+                "id": turn_id, "type": "agent", "phase": "end",
+                "name": str(_pick(data, "agent", "name", "role") or "subagent"),
+                "parentToolUseId": _pick(data, "parent_tool_use_id", "tool_use_id"),
+                "detail": shrink(data, 800),
+            })
 
         if name in _FAILURE_EVENTS:
             message = _pick(data, "message", "error", "detail", "reason")

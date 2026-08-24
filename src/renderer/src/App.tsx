@@ -1,8 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { AgentSidebar } from './components/AgentSidebar';
 import { AgentWorkspace } from './components/AgentWorkspace';
 import { EngineBanner } from './components/EngineBanner';
 import { LibraryView } from './components/LibraryView';
+import { Onboarding } from './components/Onboarding';
 import { SettingsView } from './components/SettingsView';
 import { useApp } from './store/app-store';
 import type { JSX } from 'react';
@@ -36,12 +37,15 @@ function ActivityRail(): JSX.Element {
 
 export function App(): JSX.Element {
   const view = useApp((s) => s.view);
+  // null = still asking; the shell must not flash before we know
+  const [onboarded, setOnboarded] = useState<boolean | null>(null);
   const setEngine = useApp((s) => s.setEngine);
   const setAgents = useApp((s) => s.setAgents);
   const setPaths = useApp((s) => s.setPaths);
   const applyEvent = useApp((s) => s.applyEvent);
 
   useEffect(() => {
+    void window.geny.onboarding.done().then(setOnboarded);
     void window.geny.engine.status().then(setEngine);
     void window.geny.agents.list().then(setAgents);
     void window.geny.app.paths().then(setPaths);
@@ -52,6 +56,16 @@ export function App(): JSX.Element {
       offEvent();
     };
   }, [setEngine, setAgents, setPaths, applyEvent]);
+
+  if (onboarded === null) return <div className="h-full w-full bg-bg" />;
+  if (!onboarded) {
+    return (
+      <div className="flex h-full w-full flex-col">
+        <EngineBanner />
+        <Onboarding onDone={() => setOnboarded(true)} />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full w-full flex-col">

@@ -45,6 +45,19 @@ const api: GenyApi = {
   capabilities: {
     inspect: (agentId) => ipcRenderer.invoke('capabilities:inspect', agentId),
   },
+  update: {
+    check: () => ipcRenderer.invoke('update:check'),
+    state: () => ipcRenderer.invoke('update:state'),
+  },
+  onboarding: {
+    done: () => ipcRenderer.invoke('onboarding:done'),
+    complete: () => ipcRenderer.invoke('onboarding:complete'),
+  },
+  files: {
+    list: (agentId, path) => ipcRenderer.invoke('files:list', agentId, path),
+    preview: (agentId, path) => ipcRenderer.invoke('files:preview', agentId, path),
+    reveal: (path) => ipcRenderer.invoke('files:reveal', path),
+  },
   chat: {
     history: (agentId) => ipcRenderer.invoke('chat:history', agentId),
     send: (input) => ipcRenderer.invoke('chat:send', input),

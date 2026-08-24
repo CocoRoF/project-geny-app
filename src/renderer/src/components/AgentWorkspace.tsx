@@ -1,6 +1,7 @@
 import type { JSX } from 'react';
 import { AgentConfig } from './AgentConfig';
 import { ChatPane } from './ChatPane';
+import { FilesTab } from './FilesTab';
 import { useApp } from '../store/app-store';
 
 /** The per-agent tabbed pane. Tabs are keep-alive by construction: Chat's
@@ -23,6 +24,7 @@ export function AgentWorkspace(): JSX.Element {
 
   const tabs = [
     { id: 'chat' as const, label: '대화' },
+    { id: 'files' as const, label: '파일' },
     { id: 'config' as const, label: '설정' },
   ];
 
@@ -49,7 +51,9 @@ export function AgentWorkspace(): JSX.Element {
           {agent.model ? ` · ${agent.model}` : ''}
         </span>
       </div>
-      {tab === 'chat' ? <ChatPane /> : <AgentConfig agent={agent} />}
+      {tab === 'chat' && <ChatPane />}
+      {tab === 'files' && <FilesTab agent={agent} />}
+      {tab === 'config' && <AgentConfig agent={agent} />}
     </section>
   );
 }
