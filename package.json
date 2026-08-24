@@ -1,0 +1,43 @@
+{
+  "name": "project-geny-app",
+  "version": "0.1.0",
+  "description": "Geny as a single-user desktop app — agents, tools, memory. No server.",
+  "main": "./out/main/index.js",
+  "author": "CocoRoF",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "npm run typecheck && electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "vitest run",
+    "engine:venv": "node scripts/engine-venv.mjs",
+    "engine:smoke": "node scripts/engine-smoke.mjs",
+    "bundle:python": "node scripts/bundle-python.mjs",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && npm run bundle:python && electron-builder"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/react": "^19.0.7",
+    "@types/react-dom": "^19.0.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "electron": "^43.4.1",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^5.0.0",
+    "playwright-core": "^1.62.1",
+    "postcss": "^8.4.49",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.7",
+    "vitest": "^2.1.8",
+    "zustand": "^5.0.3"
+  }
+}

@@ -1,0 +1,12 @@
+node_modules/
+out/
+dist/
+release/
+engine/.venv/
+engine/**/__pycache__/
+engine/**/*.egg-info/
+resources/python/
+geny-data/
+*.log
+.DS_Store
+node_modules/.tmp/
