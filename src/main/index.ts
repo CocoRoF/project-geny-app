@@ -15,6 +15,7 @@ import { EngineService } from './engine-service';
 import { BrowserHost } from './browser-tools';
 import { buildHostTools } from './host-tools';
 import { ensureHooksExample, resolveHooksFile } from './hooks-file';
+import { KnowledgeStore } from './knowledge';
 import { ensureStarters } from './personas';
 import { DEFAULT_SHORTCUT, QuickChat, quickChatPaths } from './quick-chat';
 import { forwardEvent, registerIpc } from './ipc';
@@ -97,7 +98,15 @@ async function boot(): Promise<void> {
   const browserHost = new BrowserHost({ show: true });
   browserHostRef = browserHost;
 
+  // the user's documents, indexed locally — no API calls, no new deps
+  const knowledge = new KnowledgeStore(resolved.dataRoot);
+
   const hostTools = buildHostTools({
+    knowledge: {
+      search: (query, limit) => knowledge.search(query, limit),
+      read: (path) => knowledge.read(path),
+      stats: () => knowledge.stats(),
+    },
     browser: {
       navigate: (id, url) => browserHost.navigate(id, url),
       snapshot: (id) => browserHost.snapshot(id),
@@ -193,6 +202,7 @@ async function boot(): Promise<void> {
 
   registerIpc({
     ipcMain,
+    knowledge,
     showQuickChat: () => quickChat?.show(),
     hideQuickChat: () => quickChat?.hide(),
     shell,

@@ -114,6 +114,15 @@ export const TOOL_GROUPS: ToolGroup[] = [
     ],
   },
   {
+    id: 'knowledge',
+    label: '지식',
+    hint: '내 문서 폴더를 검색합니다 — API 호출 없이 로컬 색인',
+    tools: [
+      { name: 'KnowledgeSearch', label: '문서 검색' },
+      { name: 'KnowledgeRead', label: '문서 읽기' },
+    ],
+  },
+  {
     id: 'browser',
     label: '브라우저',
     hint: '앱이 띄운 실제 브라우저 창을 에이전트가 조작합니다 — 보고 있을 수 있습니다',
@@ -130,7 +139,7 @@ export const TOOL_GROUPS: ToolGroup[] = [
 
 /** Names the desktop side implements — they are not engine built-ins. */
 export const HOST_TOOL_NAMES = new Set(
-  TOOL_GROUPS.filter((g) => g.id === 'desktop' || g.id === 'browser').flatMap((g) =>
+  TOOL_GROUPS.filter((g) => ['desktop', 'browser', 'knowledge'].includes(g.id)).flatMap((g) =>
     g.tools.map((t) => t.name),
   ),
 );

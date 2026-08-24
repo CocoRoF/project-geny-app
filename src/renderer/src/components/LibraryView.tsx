@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import type { CapabilityReport, McpServerRecord } from '@shared/api-types';
 import { useApp } from '../store/app-store';
 
-type Section = 'mcp' | 'capabilities' | 'folders';
+type Section = 'mcp' | 'capabilities' | 'folders' | 'knowledge';
 
 /** Everything that is a registry: MCP servers, and what the engine actually
  *  loaded for the selected agent. The second half matters more than the
@@ -19,6 +19,7 @@ export function LibraryView(): JSX.Element {
   const sections: Array<{ id: Section; label: string }> = [
     { id: 'mcp', label: 'MCP 서버' },
     { id: 'capabilities', label: '로드된 기능' },
+    { id: 'knowledge', label: '지식' },
     { id: 'folders', label: '스킬 · 명령어' },
   ];
 
@@ -41,6 +42,7 @@ export function LibraryView(): JSX.Element {
       <div className="min-w-0 flex-1 overflow-y-auto p-4 text-xs">
         {section === 'mcp' && <McpSection agent={agent} />}
         {section === 'capabilities' && <CapabilitiesSection agent={agent} />}
+        {section === 'knowledge' && <KnowledgeSection />}
         {section === 'folders' && <FoldersSection dataRoot={dataRoot} agentDir={agent?.dir} />}
       </div>
     </div>
@@ -258,6 +260,109 @@ function FoldersSection({ dataRoot, agentDir }: { dataRoot: string; agentDir?: s
           </div>
           <p className="break-all text-[11px] text-dim">{r.path}</p>
           {r.hint && <p className="text-[11px] text-dim">{r.hint}</p>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
+/**
+ * The knowledge folder and its index.
+ *
+ * The index is derived data — rebuilding is cheap and always safe — so the
+ * panel offers it plainly instead of trying to detect staleness. Skipped
+ * files are listed: a document the user expected to be searchable and is not
+ * is the failure that matters here.
+ */
+function KnowledgeSection(): JSX.Element {
+  const [stats, setStats] = useState<{ documents: number; chunks: number } | null>(null);
+  const [report, setReport] = useState<Awaited<ReturnType<typeof window.geny.knowledge.reindex>> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [query, setQuery] = useState('');
+  const [hits, setHits] = useState<Awaited<ReturnType<typeof window.geny.knowledge.search>>>([]);
+
+  useEffect(() => {
+    void window.geny.knowledge.stats().then(setStats);
+  }, []);
+
+  const reindex = async (): Promise<void> => {
+    setBusy(true);
+    try {
+      const next = await window.geny.knowledge.reindex();
+      setReport(next);
+      setStats({ documents: next.documents, chunks: next.chunks });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3 text-xs">
+      <p className="leading-relaxed text-dim">
+        <b className="text-fg">지식</b> 폴더에 문서를 넣으면 에이전트가
+        <code className="mx-1 rounded bg-black/30 px-1">KnowledgeSearch</code>
+        로 찾아 읽습니다. 로컬 색인이라 API 호출도, 비용도 없습니다.
+      </p>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-dim">
+          {stats ? `문서 ${stats.documents}개 · 조각 ${stats.chunks}개` : '읽는 중…'}
+        </span>
+        <button
+          type="button"
+          className="rounded border border-accent/60 px-2 py-1 text-accent hover:bg-accent/10 disabled:opacity-40"
+          disabled={busy}
+          onClick={() => void reindex()}
+        >
+          {busy ? '색인 중…' : '다시 색인'}
+        </button>
+        <button
+          type="button"
+          className="rounded border border-line px-2 py-1 text-dim hover:text-fg"
+          onClick={() => void window.geny.knowledge.openFolder()}
+        >
+          폴더 열기
+        </button>
+      </div>
+
+      {report && report.skipped.length > 0 && (
+        <div className="rounded border border-amber-500/40 bg-amber-500/10 p-2">
+          <p className="mb-1">색인하지 못한 파일 {report.skipped.length}개</p>
+          <ul className="text-[11px] text-dim">
+            {report.skipped.slice(0, 8).map((s) => (
+              <li key={s.path}>
+                {s.path} — {s.reason}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <input
+          className="min-w-0 flex-1 rounded border border-line bg-black/30 px-2 py-1 outline-none"
+          placeholder="검색해서 확인해 보세요"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void window.geny.knowledge.search(query).then(setHits);
+          }}
+        />
+        <button
+          type="button"
+          className="rounded border border-line px-2 py-1 text-dim hover:text-fg"
+          onClick={() => void window.geny.knowledge.search(query).then(setHits)}
+        >
+          검색
+        </button>
+      </div>
+
+      {hits.map((hit) => (
+        <div key={hit.path} className="rounded border border-line p-2">
+          <div className="font-medium">{hit.title}</div>
+          <div className="text-[10px] text-dim">{hit.path}</div>
+          <p className="mt-1 leading-relaxed text-dim">{hit.snippet}</p>
         </div>
       ))}
     </div>

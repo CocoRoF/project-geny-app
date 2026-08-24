@@ -12,6 +12,7 @@ import { detectCli } from './cli-detect';
 import { listDir, preview } from './fs-browse';
 import type { SidecarEvent } from '@shared/sidecar-protocol';
 import type { Store } from './db';
+import { knowledgeDir, type KnowledgeStore } from './knowledge';
 import { readMemory, readMemoryNote, readTranscript } from './memory-browser';
 import { listPersonas, personaDir, savePersona } from './personas';
 import type { EngineService } from './engine-service';
@@ -27,6 +28,10 @@ export const CHANNELS = {
   engineStatus: 'engine:status',
   engineStart: 'engine:start',
   engineStatusEvent: 'engine:statusEvent',
+  knowledgeStats: 'knowledge:stats',
+  knowledgeReindex: 'knowledge:reindex',
+  knowledgeSearch: 'knowledge:search',
+  knowledgeFolder: 'knowledge:openFolder',
   memoryOverview: 'memory:overview',
   memoryNote: 'memory:note',
   memoryTranscript: 'memory:transcript',
@@ -67,6 +72,7 @@ export const CHANNELS = {
 } as const;
 
 export interface IpcDeps {
+  knowledge: KnowledgeStore;
   showQuickChat(): void;
   hideQuickChat(): void;
   ipcMain: IpcMain;
@@ -102,6 +108,13 @@ export function registerIpc(deps: IpcDeps): void {
 
   ipcMain.handle(CHANNELS.engineStatus, () => deps.engine.getStatus());
   ipcMain.handle(CHANNELS.engineStart, () => deps.engine.start());
+
+  ipcMain.handle(CHANNELS.knowledgeStats, () => deps.knowledge.stats());
+  ipcMain.handle(CHANNELS.knowledgeReindex, () => deps.knowledge.reindex());
+  ipcMain.handle(CHANNELS.knowledgeSearch, (_e, query: string) => deps.knowledge.search(query));
+  ipcMain.handle(CHANNELS.knowledgeFolder, async () => {
+    await deps.shell.openPath(knowledgeDir(deps.paths.dataRoot));
+  });
 
   ipcMain.handle(CHANNELS.memoryOverview, (_e, agentId: string) =>
     readMemory(deps.agentDir(agentId)),

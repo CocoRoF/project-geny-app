@@ -21,6 +21,12 @@ const api: GenyApi = {
     start: () => ipcRenderer.invoke('engine:start'),
     onStatus: (cb) => subscribe<EngineStatus>('engine:statusEvent', cb),
   },
+  knowledge: {
+    stats: () => ipcRenderer.invoke('knowledge:stats'),
+    reindex: () => ipcRenderer.invoke('knowledge:reindex'),
+    search: (query) => ipcRenderer.invoke('knowledge:search', query),
+    openFolder: () => ipcRenderer.invoke('knowledge:openFolder'),
+  },
   memory: {
     overview: (agentId) => ipcRenderer.invoke('memory:overview', agentId),
     note: (agentId, path) => ipcRenderer.invoke('memory:note', agentId, path),

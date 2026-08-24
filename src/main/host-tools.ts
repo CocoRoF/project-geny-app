@@ -38,8 +38,15 @@ export interface BrowserDeps {
   close(agentId: string): { closed: boolean };
 }
 
+export interface KnowledgeDeps {
+  search(query: string, limit?: number): Array<{ path: string; title: string; snippet: string }>;
+  read(path: string): { path: string; text: string };
+  stats(): { documents: number; chunks: number };
+}
+
 export interface HostToolDeps {
   browser: BrowserDeps;
+  knowledge: KnowledgeDeps;
   captureScreen(): Promise<{ mime: string; base64: string; width: number; height: number }>;
   notify(input: { title: string; body: string }): void;
   clipboardRead(): string;
@@ -165,6 +172,39 @@ export function buildHostTools(deps: HostToolDeps): HostTool[] {
         await deps.openPath(resolved);
         return { opened: resolved };
       },
+    },
+    {
+      spec: {
+        name: 'KnowledgeSearch',
+        description:
+          "Search the user's own documents (the knowledge folder). Returns matching passages " +
+          'with their file paths — follow up with KnowledgeRead for the full text.',
+        schema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string' },
+            limit: { type: 'number', description: 'default 6' },
+          },
+          required: ['query'],
+        },
+      },
+      handle: async (args) => {
+        const hits = deps.knowledge.search(
+          str(args.query),
+          typeof args.limit === 'number' ? Math.min(args.limit, 20) : 6,
+        );
+        return { hits, indexed: deps.knowledge.stats() };
+      },
+    },
+    {
+      spec: {
+        name: 'KnowledgeRead',
+        description:
+          'Read one document from the knowledge folder in full, by the path KnowledgeSearch ' +
+          'returned.',
+        schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+      },
+      handle: async (args) => deps.knowledge.read(str(args.path)),
     },
     {
       spec: {

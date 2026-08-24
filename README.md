@@ -26,6 +26,7 @@
 | **권한** | 신중 / 표준 / 신뢰 — 위험한 작업은 앱에서 승인 |
 | **대화 영속** | 앱을 껐다 켜도 대화와 **엔진 컨텍스트**가 이어집니다 |
 | **MCP** | 서버 등록 → 에이전트별 on/off. *실제로 연결됐는지* 엔진에 물어 보여줍니다 |
+| **지식** | `<데이터>/knowledge` 에 문서를 넣으면 에이전트가 검색해 읽습니다 — 로컬 색인, API 호출 0 |
 | **훅** | 외부 프로그램이 도구 호출을 지켜보고 **막을 수 있습니다** — `<데이터>/hooks/hooks.yaml` |
 | **페르소나** | 역할·규칙·모델·도구를 한 묶음으로. `<데이터>/personas/*.md` — 열어서 고칠 수 있습니다 |
 | **스킬 · 명령어** | `<데이터>/skills`, `<데이터>/commands` 에 넣으면 자동 인식 |
@@ -90,6 +91,7 @@ npm run dist            # 파이썬 동봉 → 검증 → 인스톨러
 | `node test/personas.mjs` | 페르소나가 에이전트의 프롬프트·태도·도구를 실제로 구성 |
 | `node test/memory-browser.mjs` | 엔진이 기록한 기억을 앱이 읽고, 경로 탈출을 거부 |
 | `engine/.venv/bin/python test/hooks_engine_test.py` | 훅이 실제로 셸 실행을 차단 (모델 불필요) |
+| `node test/knowledge.mjs` | 문서 색인·검색 (한국어 2글자 질의 포함) |
 | `node scripts/verify-bundle.mjs` | 동봉 파이썬이 실제로 돌고 프로토콜을 말하는지 |
 
 Linux 개발 실행에서 `chrome-sandbox` SUID 가 없으면 SIGTRAP — `--no-sandbox` 로 우회합니다.

@@ -131,6 +131,12 @@ export interface GenyApi {
     start(): Promise<EngineStatus>;
     onStatus(cb: (s: EngineStatus) => void): () => void;
   };
+  knowledge: {
+    stats(): Promise<{ documents: number; chunks: number }>;
+    reindex(): Promise<{ documents: number; chunks: number; skipped: Array<{ path: string; reason: string }>; took: number }>;
+    search(query: string): Promise<Array<{ path: string; title: string; snippet: string; modified: number }>>;
+    openFolder(): Promise<void>;
+  };
   memory: {
     /** what this agent remembers — long-term note, structured notes, turns */
     overview(agentId: string): Promise<MemoryOverview>;
