@@ -2,6 +2,7 @@ import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
 import type { CliInfo } from '@shared/api-types';
 import { useApp } from '../store/app-store';
+import { AvatarSettings } from './AvatarSettings';
 
 const PROVIDERS = [
   { id: 'anthropic', label: 'Anthropic API', hint: 'console.anthropic.com 에서 발급' },
@@ -116,6 +117,8 @@ export function SettingsView(): JSX.Element {
           엔진 다시 시작
         </button>
       </section>
+
+      <AvatarSettings />
 
       <section>
         <h2 className="mb-2 text-[10px] uppercase tracking-widest text-dim">데이터</h2>

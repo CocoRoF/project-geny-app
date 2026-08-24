@@ -1,6 +1,6 @@
 /** The only bridge. Shapes must match @shared/api-types exactly. */
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AgentRecord, EngineStatus, GenyApi } from '@shared/api-types';
+import type { AgentRecord, AvatarState, EngineStatus, GenyApi } from '@shared/api-types';
 import type { SidecarEvent } from '@shared/sidecar-protocol';
 
 const subscribe = <T>(channel: string, cb: (payload: T) => void): (() => void) => {
@@ -32,6 +32,18 @@ const api: GenyApi = {
     note: (agentId, path) => ipcRenderer.invoke('memory:note', agentId, path),
     transcript: (agentId) => ipcRenderer.invoke('memory:transcript', agentId),
     openFolder: (agentId) => ipcRenderer.invoke('memory:openFolder', agentId),
+  },
+  avatar: {
+    list: () => ipcRenderer.invoke('avatar:list'),
+    state: () => ipcRenderer.invoke('avatar:state'),
+    select: (modelId) => ipcRenderer.invoke('avatar:select', modelId),
+    show: () => ipcRenderer.invoke('avatar:show'),
+    hide: () => ipcRenderer.invoke('avatar:hide'),
+    toggle: () => ipcRenderer.invoke('avatar:toggle'),
+    setClickThrough: (enabled) => ipcRenderer.invoke('avatar:setClickThrough', enabled),
+    setScale: (scale) => ipcRenderer.invoke('avatar:setScale', scale),
+    openFolder: () => ipcRenderer.invoke('avatar:openFolder'),
+    onState: (cb) => subscribe<AvatarState>('avatar:stateEvent', cb),
   },
   personas: {
     list: () => ipcRenderer.invoke('personas:list'),

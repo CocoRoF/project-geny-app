@@ -12,6 +12,7 @@ import { detectCli } from './cli-detect';
 import { listDir, preview } from './fs-browse';
 import type { SidecarEvent } from '@shared/sidecar-protocol';
 import type { Store } from './db';
+import type { AvatarController } from './avatar';
 import { knowledgeDir, type KnowledgeStore } from './knowledge';
 import { readMemory, readMemoryNote, readTranscript } from './memory-browser';
 import { listPersonas, personaDir, savePersona } from './personas';
@@ -36,6 +37,16 @@ export const CHANNELS = {
   memoryNote: 'memory:note',
   memoryTranscript: 'memory:transcript',
   memoryFolder: 'memory:openFolder',
+  avatarList: 'avatar:list',
+  avatarState: 'avatar:state',
+  avatarSelect: 'avatar:select',
+  avatarShow: 'avatar:show',
+  avatarHide: 'avatar:hide',
+  avatarToggle: 'avatar:toggle',
+  avatarClickThrough: 'avatar:setClickThrough',
+  avatarScale: 'avatar:setScale',
+  avatarFolder: 'avatar:openFolder',
+  avatarStateEvent: 'avatar:stateEvent',
   personasList: 'personas:list',
   personasSave: 'personas:save',
   personasApply: 'personas:applyTo',
@@ -73,6 +84,7 @@ export const CHANNELS = {
 
 export interface IpcDeps {
   knowledge: KnowledgeStore;
+  avatar: AvatarController;
   showQuickChat(): void;
   hideQuickChat(): void;
   ipcMain: IpcMain;
@@ -104,6 +116,22 @@ export function registerIpc(deps: IpcDeps): void {
   });
   ipcMain.handle(CHANNELS.appHideQuickChat, () => {
     deps.hideQuickChat();
+  });
+
+  ipcMain.handle(CHANNELS.avatarList, () => ({
+    models: deps.avatar.models(),
+    state: deps.avatar.state(),
+  }));
+  ipcMain.handle(CHANNELS.avatarState, () => deps.avatar.state());
+  ipcMain.handle(CHANNELS.avatarSelect, (_e, modelId: string | null) => deps.avatar.select(modelId));
+  ipcMain.handle(CHANNELS.avatarShow, () => deps.avatar.show());
+  ipcMain.handle(CHANNELS.avatarHide, () => deps.avatar.hide());
+  ipcMain.handle(CHANNELS.avatarToggle, () => deps.avatar.toggle());
+  ipcMain.handle(CHANNELS.avatarClickThrough, (_e, enabled: boolean) =>
+    deps.avatar.setClickThrough(enabled));
+  ipcMain.handle(CHANNELS.avatarScale, (_e, scale: number) => deps.avatar.setScale(scale));
+  ipcMain.handle(CHANNELS.avatarFolder, async () => {
+    await deps.shell.openPath(deps.avatar.folder());
   });
 
   ipcMain.handle(CHANNELS.engineStatus, () => deps.engine.getStatus());

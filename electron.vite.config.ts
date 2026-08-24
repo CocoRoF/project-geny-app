@@ -16,7 +16,16 @@ export default defineConfig({
   renderer: {
     root: 'src/renderer',
     plugins: [react()],
-    build: { rollupOptions: { input: { index: resolve('src/renderer/index.html') } } },
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve('src/renderer/index.html'),
+          // the overlay is its own page: a looser CSP for wasm + file:
+          // textures, and babylon stays out of the chat bundle
+          avatar: resolve('src/renderer/avatar.html'),
+        },
+      },
+    },
     resolve: {
       alias: { '@': resolve('src/renderer/src'), '@shared': resolve('src/shared') },
     },

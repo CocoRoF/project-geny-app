@@ -128,6 +128,29 @@ export interface MemoryOverview {
   transcript?: { path: string; turns: number; bytes: number };
 }
 
+/** A PMX model folder the user dropped into `<data-root>/avatars`. */
+export interface AvatarModel {
+  id: string;
+  name: string;
+  file: string;
+  dir: string;
+  bytes: number;
+}
+
+export interface AvatarState {
+  /** false when the avatars folder is empty — the UI says so rather than
+   *  offering a toggle that cannot do anything */
+  available: boolean;
+  visible: boolean;
+  clickThrough: boolean;
+  modelId?: string;
+  modelName?: string;
+  /** file:// URL of the .pmx; textures resolve relative to it */
+  modelUrl?: string;
+  scale: number;
+  folder: string;
+}
+
 export interface GenyApi {
   app: {
     paths(): Promise<AppPaths>;
@@ -154,6 +177,20 @@ export interface GenyApi {
     /** the short-term turn log — the only memory that exists early on */
     transcript(agentId: string): Promise<Array<{ index: number; role: string; text: string; at?: number }>>;
     openFolder(agentId: string): Promise<void>;
+  };
+  avatar: {
+    /** models found on disk plus the current overlay state */
+    list(): Promise<{ models: AvatarModel[]; state: AvatarState }>;
+    state(): Promise<AvatarState>;
+    select(modelId: string | null): Promise<AvatarState>;
+    show(): Promise<AvatarState>;
+    hide(): Promise<AvatarState>;
+    toggle(): Promise<AvatarState>;
+    /** click-through off = the overlay accepts the mouse and can be dragged */
+    setClickThrough(enabled: boolean): Promise<AvatarState>;
+    setScale(scale: number): Promise<AvatarState>;
+    openFolder(): Promise<void>;
+    onState(cb: (s: AvatarState) => void): () => void;
   };
   personas: {
     list(): Promise<PersonaRecord[]>;

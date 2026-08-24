@@ -263,3 +263,25 @@ acceptEdits` 를 주입한다.
 | `build_manifest`가 Stage4 guard를 건너뜀 | 앱에서 예산 guard 명시 설치 + 회귀 테스트 |
 | 권한 기본값이 no-match→allow | 앱은 **기본 거부**로 오버라이드 |
 | feature pack 미설치 상태 | 엔진의 안내 메시지 그대로 노출 + 설정에서 1클릭 설치 |
+
+## 결정 9 — 아바타는 MMD(PMX) 만
+
+**선택**: 오버레이 아바타는 `babylon-mmd`(MIT) + `@babylonjs/core`(Apache-2.0) 로 PMX 만 렌더링한다.
+오버레이는 별도 렌더러 엔트리(`avatar.html`)를 갖는다.
+
+**기각한 대안**
+- *Live2D (Cubism)* — 런타임의 핵심인 Cubism Core 가 독점 라이선스라 설치 파일에 동봉할 수 없다.
+- *Spine* — `@esotericsoftware/spine-*` 은 Esoteric 라이선스가 필요하다.
+- *메인 창과 같은 페이지에 `?surface=avatar`* — 3D 런타임이 채팅 번들에 들어가고,
+  MMD 물리가 요구하는 `wasm-unsafe-eval` 과 텍스처의 `file:` 접근 때문에 메인 창의
+  CSP(`default-src 'self'`)까지 느슨해진다. 엔트리를 나누면 완화된 CSP 가 오버레이에만 적용된다.
+
+**동봉되지 않는 것은 막지 않는다**: 사용자가 직접 런타임을 넣으면 다른 포맷도 쓸 수 있다.
+다만 *설치 파일이 나르는 것*은 자유롭게 재배포 가능한 것뿐이다.
+
+**렌더러에서 반드시 지켜야 하는 것** (전작에서 실제로 겪은 것들)
+- `MultiPhysicsRuntime.dispose()` 는 wasm 락에서 무한 대기한다 → 페이지 전역 싱글턴으로
+  만들고 **절대 dispose 하지 않는다**. 모델 교체는 `unregister()` 로 한다.
+- `Bone.rotationQuaternion` 게터는 **복사본**을 준다. 세터로만 뼈가 움직인다.
+- `createMmdModel` 은 읽은 메타데이터를 지운다 → 모프·머티리얼 목록은 **그 전에** 캡처한다.
+- 언마운트 시 `destroyMmdModel` 을 부르지 않으면 모프 타깃이 누적된다.

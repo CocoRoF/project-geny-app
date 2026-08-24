@@ -9,6 +9,8 @@ import {
   app, BrowserWindow, clipboard, desktopCapturer, ipcMain, Menu, nativeImage,
   Notification, safeStorage, screen, shell, Tray,
 } from 'electron';
+import { AvatarController } from './avatar';
+import { avatarWindowPaths } from './avatar-window';
 import { agentDir as resolveAgentDir, layout, resolveDataRoot } from './data-root';
 import { openStore } from './db';
 import { EngineService } from './engine-service';
@@ -29,11 +31,15 @@ let engine: EngineService | null = null;
 let quickChat: QuickChat | null = null;
 let tray: Tray | null = null;
 let browserHostRef: BrowserHost | null = null;
+let avatar: AvatarController | null = null;
 
-/** Every surface a sidecar event should reach. */
+/** Every surface a sidecar event should reach. The avatar is one of them:
+ *  it reacts to the agent thinking and speaking, so it needs the same
+ *  stream the chat window gets. */
 const surfaces = (): Array<BrowserWindow | null> => [
   mainWindow,
   quickChat?.window() ?? null,
+  avatar?.window() ?? null,
 ];
 
 function createWindow(): BrowserWindow {
@@ -200,8 +206,25 @@ async function boot(): Promise<void> {
     return tool.handle(args, { agentId: forAgent, agentDir: resolveAgentDir(paths, forAgent) });
   };
 
+  const avatarPaths = avatarWindowPaths(import.meta.dirname);
+  avatar = new AvatarController({
+    dataRoot: resolved.dataRoot,
+    settings: store.settings,
+    window: {
+      preload: avatarPaths.preload,
+      devServerUrl: process.env.ELECTRON_RENDERER_URL ?? null,
+      rendererFile: avatarPaths.rendererFile,
+    },
+    publish: (state) => {
+      for (const win of surfaces()) {
+        if (win && !win.isDestroyed()) win.webContents.send('avatar:stateEvent', state);
+      }
+    },
+  });
+
   registerIpc({
     ipcMain,
+    avatar,
     knowledge,
     showQuickChat: () => quickChat?.show(),
     hideQuickChat: () => quickChat?.hide(),
@@ -243,12 +266,28 @@ async function boot(): Promise<void> {
     Menu.buildFromTemplate([
       { label: '창 열기', click: () => mainWindow?.show() },
       { label: `퀵챗 (${shortcut ?? '단축키 사용 불가'})`, click: () => quickChat?.show() },
+      {
+        label: '아바타 표시',
+        type: 'checkbox',
+        checked: avatar?.state().visible ?? false,
+        click: (item) => {
+          try {
+            item.checked = avatar?.toggle().visible ?? false;
+          } catch {
+            // no model installed — the checkbox must not lie about it
+            item.checked = false;
+          }
+        },
+      },
       { type: 'separator' },
       { label: '데이터 폴더', click: () => void shell.openPath(resolved.dataRoot) },
       { type: 'separator' },
       { label: '종료', click: () => app.quit() },
     ]),
   );
+
+  // the overlay comes back where the user left it, showing or not
+  avatar.restore();
 
   // start the engine eagerly: first-token latency is the whole UX
   void engine.start();
@@ -264,6 +303,7 @@ app.on('activate', () => {
 });
 app.on('before-quit', () => {
   browserHostRef?.destroyAll();
+  avatar?.destroy();
   quickChat?.destroy();
   tray?.destroy();
   void engine?.stop();

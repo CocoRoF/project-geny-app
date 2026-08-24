@@ -37,6 +37,7 @@
 | **위임** | 서브에이전트에 일을 맡기고 그 활동을 대화에 표시 (worker · researcher · summarizer · critic) |
 | **퀵챗** | `Ctrl/Cmd+Shift+G` — 다른 앱 위에 떠서 바로 묻고 답을 받습니다. 트레이 상주 |
 | **브라우저** | 에이전트가 실제 브라우저 창을 조작합니다 — 열기 · 요소 스냅샷 · 클릭/입력 · 본문 읽기 |
+| **아바타** | MMD(PMX) 3D 모델이 바탕화면 위에 떠서 생각·발화·승인 대기에 반응. 클릭 통과 · 위치 기억 |
 
 제거된 것: GAPT(샌드박스) · 클라우드/동기화 · 오디오 자체 서빙 · 로그인/관리자.
 
@@ -93,6 +94,7 @@ npm run dist            # 파이썬 동봉 → 검증 → 인스톨러
 | `node test/memory-browser.mjs` | 엔진이 기록한 기억을 앱이 읽고, 경로 탈출을 거부 |
 | `engine/.venv/bin/python test/hooks_engine_test.py` | 훅이 실제로 셸 실행을 차단 (모델 불필요) |
 | `node test/knowledge.mjs` | 문서 색인·검색 (한국어 2글자 질의 포함) |
+| `node test/avatar.mjs` | PMX 모델이 WebGL 에 실제로 로드(모프·물리 확인)·클릭 통과·재시작 복원 |
 | `engine/.venv/bin/python test/permission_engine_test.py` | 승인 요청이 사용자에게 도달하고 승인/거부가 반영 |
 | `node scripts/verify-bundle.mjs` | 동봉 파이썬이 실제로 돌고 프로토콜을 말하는지 |
 
