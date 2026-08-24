@@ -94,6 +94,9 @@ export interface GenyApi {
   app: {
     paths(): Promise<AppPaths>;
     openPath(p: string): Promise<void>;
+    /** summon the quick-chat strip (same thing the global shortcut does) */
+    quickChat(): Promise<void>;
+    hideQuickChat(): Promise<void>;
   };
   engine: {
     status(): Promise<EngineStatus>;

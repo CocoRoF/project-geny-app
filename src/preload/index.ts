@@ -13,6 +13,8 @@ const api: GenyApi = {
   app: {
     paths: () => ipcRenderer.invoke('app:paths'),
     openPath: (p) => ipcRenderer.invoke('app:openPath', p),
+    quickChat: () => ipcRenderer.invoke('app:quickChat'),
+    hideQuickChat: () => ipcRenderer.invoke('app:hideQuickChat'),
   },
   engine: {
     status: () => ipcRenderer.invoke('engine:status'),

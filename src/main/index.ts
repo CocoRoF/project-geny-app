@@ -5,11 +5,15 @@
  */
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { app, BrowserWindow, clipboard, desktopCapturer, ipcMain, Notification, safeStorage, screen, shell } from 'electron';
+import {
+  app, BrowserWindow, clipboard, desktopCapturer, ipcMain, Menu, nativeImage,
+  Notification, safeStorage, screen, shell, Tray,
+} from 'electron';
 import { agentDir as resolveAgentDir, layout, resolveDataRoot } from './data-root';
 import { openStore } from './db';
 import { EngineService } from './engine-service';
 import { buildHostTools } from './host-tools';
+import { DEFAULT_SHORTCUT, QuickChat, quickChatPaths } from './quick-chat';
 import { forwardEvent, registerIpc } from './ipc';
 import { createSecretStore } from './secrets';
 import { Updater } from './updater';
@@ -18,6 +22,14 @@ const isDev = !app.isPackaged;
 
 let mainWindow: BrowserWindow | null = null;
 let engine: EngineService | null = null;
+let quickChat: QuickChat | null = null;
+let tray: Tray | null = null;
+
+/** Every surface a sidecar event should reach. */
+const surfaces = (): Array<BrowserWindow | null> => [
+  mainWindow,
+  quickChat?.window() ?? null,
+];
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -94,8 +106,8 @@ async function boot(): Promise<void> {
       await shell.openPath(target);
     },
     say: ({ agentId, level, message }) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('chat:hostSay', { agentId, level, message });
+      for (const win of surfaces()) {
+        if (win && !win.isDestroyed()) win.webContents.send('chat:hostSay', { agentId, level, message });
       }
     },
   });
@@ -122,13 +134,13 @@ async function boot(): Promise<void> {
     // global one of the same id, which is the intuitive precedence
     skillDirs: (id) => [join(paths.dataRoot, 'skills'), join(resolveAgentDir(paths, id), 'skills')],
     commandDirs: (id) => [join(paths.dataRoot, 'commands'), join(resolveAgentDir(paths, id), 'commands')],
-    emit: (event) => forwardEvent(mainWindow, event),
+    emit: (event) => forwardEvent(surfaces(), event),
     persistAssistant: (agentId, text) => {
       store.messages.append({ agentId, role: 'assistant', text });
     },
     onStatus: (status) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('engine:statusEvent', status);
+      for (const win of surfaces()) {
+        if (win && !win.isDestroyed()) win.webContents.send('engine:statusEvent', status);
       }
     },
     log: (line) => {
@@ -147,6 +159,8 @@ async function boot(): Promise<void> {
 
   registerIpc({
     ipcMain,
+    showQuickChat: () => quickChat?.show(),
+    hideQuickChat: () => quickChat?.hide(),
     shell,
     window: () => mainWindow,
     store,
@@ -159,6 +173,39 @@ async function boot(): Promise<void> {
   });
 
   mainWindow = createWindow();
+
+  // Quick chat + tray: the point of a desktop app is being reachable without
+  // being in front of you.
+  const paths2 = quickChatPaths(import.meta.dirname);
+  quickChat = new QuickChat({
+    preload: paths2.preload,
+    devServerUrl: process.env.ELECTRON_RENDERER_URL ?? null,
+    rendererFile: paths2.rendererFile,
+  });
+  const shortcut = quickChat.registerShortcut(
+    store.settings.get('quickChat.shortcut') || DEFAULT_SHORTCUT,
+  );
+  if (!shortcut) {
+    // another app owns the accelerator; say so instead of silently doing
+    // nothing when the user presses it
+    store.settings.set('quickChat.shortcutError', 'in use by another app');
+  } else {
+    store.settings.set('quickChat.shortcutActive', shortcut);
+  }
+
+  tray = new Tray(nativeImage.createEmpty());
+  tray.setToolTip('Geny');
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: '창 열기', click: () => mainWindow?.show() },
+      { label: `퀵챗 (${shortcut ?? '단축키 사용 불가'})`, click: () => quickChat?.show() },
+      { type: 'separator' },
+      { label: '데이터 폴더', click: () => void shell.openPath(resolved.dataRoot) },
+      { type: 'separator' },
+      { label: '종료', click: () => app.quit() },
+    ]),
+  );
+
   // start the engine eagerly: first-token latency is the whole UX
   void engine.start();
 }
@@ -172,5 +219,7 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow();
 });
 app.on('before-quit', () => {
+  quickChat?.destroy();
+  tray?.destroy();
   void engine?.stop();
 });

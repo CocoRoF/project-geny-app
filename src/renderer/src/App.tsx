@@ -4,6 +4,7 @@ import { AgentWorkspace } from './components/AgentWorkspace';
 import { EngineBanner } from './components/EngineBanner';
 import { LibraryView } from './components/LibraryView';
 import { Onboarding } from './components/Onboarding';
+import { QuickChatSurface } from './components/QuickChatSurface';
 import { SettingsView } from './components/SettingsView';
 import { useApp } from './store/app-store';
 import type { JSX } from 'react';
@@ -36,6 +37,10 @@ function ActivityRail(): JSX.Element {
 }
 
 export function App(): JSX.Element {
+  // One bundle, two windows: the quick-chat strip is the same code with a
+  // different shell, so the chat surface cannot drift between them.
+  const isQuick = new URLSearchParams(window.location.search).get('surface') === 'quick';
+
   const view = useApp((s) => s.view);
   // null = still asking; the shell must not flash before we know
   const [onboarded, setOnboarded] = useState<boolean | null>(null);
@@ -58,6 +63,9 @@ export function App(): JSX.Element {
   }, [setEngine, setAgents, setPaths, applyEvent]);
 
   if (onboarded === null) return <div className="h-full w-full bg-bg" />;
+  // the strip never runs onboarding — it borrows whatever the main window
+  // already set up, and has no room to ask for a key
+  if (isQuick) return <QuickChatSurface />;
   if (!onboarded) {
     return (
       <div className="flex h-full w-full flex-col">

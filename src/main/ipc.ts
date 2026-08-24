@@ -20,6 +20,8 @@ import type { SecretStore } from './secrets';
 export const CHANNELS = {
   appPaths: 'app:paths',
   appOpenPath: 'app:openPath',
+  appQuickChat: 'app:quickChat',
+  appHideQuickChat: 'app:hideQuickChat',
   engineStatus: 'engine:status',
   engineStart: 'engine:start',
   engineStatusEvent: 'engine:statusEvent',
@@ -55,6 +57,8 @@ export const CHANNELS = {
 } as const;
 
 export interface IpcDeps {
+  showQuickChat(): void;
+  hideQuickChat(): void;
   ipcMain: IpcMain;
   shell: Pick<Shell, 'openPath'>;
   window(): BrowserWindow | null;
@@ -78,6 +82,12 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNELS.appPaths, () => deps.paths);
   ipcMain.handle(CHANNELS.appOpenPath, async (_e, p: string) => {
     await deps.shell.openPath(p);
+  });
+  ipcMain.handle(CHANNELS.appQuickChat, () => {
+    deps.showQuickChat();
+  });
+  ipcMain.handle(CHANNELS.appHideQuickChat, () => {
+    deps.hideQuickChat();
   });
 
   ipcMain.handle(CHANNELS.engineStatus, () => deps.engine.getStatus());
@@ -224,7 +234,16 @@ export function registerIpc(deps: IpcDeps): void {
 }
 
 /** Push a sidecar event to the renderer (dropped silently when no window). */
-export function forwardEvent(window: BrowserWindow | null, event: SidecarEvent): void {
-  if (!window || window.isDestroyed()) return;
-  window.webContents.send(CHANNELS.chatEvent, event);
+/**
+ * Push a sidecar event to every live surface.
+ *
+ * There is more than one window now (main + quick chat), and a turn started
+ * in one is still the user's turn: sending only to the window that asked
+ * would leave the other showing a conversation frozen mid-answer.
+ */
+export function forwardEvent(windows: Array<BrowserWindow | null>, event: SidecarEvent): void {
+  for (const window of windows) {
+    if (!window || window.isDestroyed()) continue;
+    window.webContents.send(CHANNELS.chatEvent, event);
+  }
 }
