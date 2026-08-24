@@ -217,6 +217,26 @@ GAPT/샌드박스(도구 3개 + docker exec) · 클라우드/파일저장소/동
 ✓ turn events:    started → event ×N  (Electron → 사이드카 → 엔진 → 렌더러)
 ```
 
+**M1(실제 도구)까지 실증** — `claude_code_cli` 백엔드로 실 모델 턴:
+```
+✓ turn closed: tool:Write:start · tool:Write:result · done
+  assistant: "File proof.txt has been written with the specified content."
+✓ 워크스페이스에 실제 파일 생성: proof.txt = "hello-from-geny-…"
+```
+
+### 도구 실행 위치의 비대칭 (반드시 알아야 하는 계약)
+
+| 백엔드 | 도구를 실행하는 주체 | 격리 수단 |
+|---|---|---|
+| `anthropic` · `openai` | **엔진**(사이드카 프로세스 내) | `ToolContext.allowed_paths` 경로 감옥 + `permission_rules` |
+| `claude_code_cli` | **CLI 자신**(별도 프로세스, 자기 cwd·자기 권한 모델) | CLI 의 cwd(=우리가 지정한 워크스페이스) + CLI 권한 모드 |
+
+CLI 백엔드에서 `workspace_dir`를 주지 않으면 CLI가 **사이드카의 cwd**를 물려받아
+**앱 소스 트리에 파일을 쓴다**(실측: repo 루트에 x.txt 생성). 또 CLI 기본 권한 모드는
+tty 가 없는 자식 프로세스에서 물어볼 수단이 없어 **모든 편집이 거부되고 에이전트가 재시도 루프**에
+빠진다(실측). → `ProviderCredentials.extras`에 `workspace_dir` + `default_permission_mode:
+acceptEdits` 를 주입한다.
+
 과정에서 잡은 실제 결함·함정 (모두 수정/기록):
 | 발견 | 내용 |
 |---|---|
@@ -227,6 +247,10 @@ GAPT/샌드박스(도구 3개 + docker exec) · 클라우드/파일저장소/동
 | **네이티브 빌드 파손** | better-sqlite3 node-gyp 실패 → `node:sqlite` 채택(네이티브 0개) |
 | **ELECTRON_RUN_AS_NODE** | 켜져 있으면 `require('electron')`이 API가 아니라 경로를 준다 |
 | **Linux chrome-sandbox** | SUID 미설정 시 SIGTRAP — 패키징 postinst에서 4755 강제 필요 |
+| **CLI 가 앱 소스에 씀** | `workspace_dir` 미주입 시 CLI 가 사이드카 cwd 상속 → repo 루트에 파일 생성 |
+| **CLI 권한 교착** | tty 없는 자식에서 기본 권한 모드는 물어볼 수 없어 전 편집 거부·재시도 루프 |
+| **가드 체인 미설치** | `build_manifest`가 빈 체인에 순서를 선언 → `chain.order_unappliable`로 **권한 가드 포함 전부 미설치**. 앱이 정책을 소유할 때까지 선언 제거 |
+| **도구 이벤트 4중복·이름 없음** | `api.tool_use`+`api.cli_tool_call` × (빈 입력→전체 입력) = 카드 4개, 결과엔 이름 없음 → tool_use_id 로 dedupe·이름 역참조 |
 
 ## 5. 위험과 대응
 

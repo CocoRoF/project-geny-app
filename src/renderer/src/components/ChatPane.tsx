@@ -1,14 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
-import { useApp } from '../store/app-store';
+import { type ChatEntry, useApp } from '../store/app-store';
 import { ApiKeyGate } from './ApiKeyGate';
 import { PromptDialog } from './PromptDialog';
 import { ToolCardRow } from './ToolCardRow';
 import type { JSX } from 'react';
 
+const EMPTY: ChatEntry[] = [];
+
 export function ChatPane(): JSX.Element {
   const agents = useApp((s) => s.agents);
   const activeId = useApp((s) => s.activeAgentId);
-  const entries = useApp((s) => (activeId ? (s.entries[activeId] ?? []) : []));
+  // NOTE: never build a new array inside a zustand selector — `?? []`
+  // returns a fresh reference every render and re-renders forever
+  // (React #185). Select the stable slice, then fall back outside.
+  const entryMap = useApp((s) => s.entries);
+  const entries = (activeId ? entryMap[activeId] : undefined) ?? EMPTY;
   const activeTurn = useApp((s) => s.activeTurn);
   const pushUser = useApp((s) => s.pushUser);
   const beginTurn = useApp((s) => s.beginTurn);

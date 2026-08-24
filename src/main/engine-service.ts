@@ -23,6 +23,25 @@ export interface EngineDeps {
   log?: (line: string) => void;
 }
 
+/**
+ * The workspace IS the containment boundary: every agent gets its own
+ * `<data-root>/agents/<id>/workspace` and the engine's fs tools refuse
+ * anything outside it (`allowedPaths`). Inside that jail, editing files is
+ * the job, not a risk — so edits are pre-approved and only genuinely
+ * escalating operations should stop to ask.
+ *
+ * For `claude_code_cli` this is not merely a preference: geny-executor only
+ * passes `--permission-mode` when the mode is NOT 'default'
+ * (llm_client/translators/_cli.py), so 'default' leaves the CLI on its own
+ * interactive default. Under a piped, non-interactive host that means writes
+ * are refused and the refusal appears only as assistant prose — a silent
+ * block, which an E2E run reproduced (the agent "succeeded" but wrote no
+ * file). Being explicit is the fix.
+ */
+export function defaultPermissionMode(provider: AgentRecord['provider']): TurnConfig['permissionMode'] {
+  return provider === 'claude_code_cli' ? 'acceptEdits' : 'default';
+}
+
 export class EngineService {
   private daemon: SidecarDaemon | null = null;
   private status: EngineStatus = { state: 'stopped' };
@@ -99,7 +118,7 @@ export class EngineService {
       apiKey: this.deps.secret(agent.provider),
       agentDir: dir,
       allowedPaths: [`${dir}/workspace`],
-      permissionMode: 'default',
+      permissionMode: defaultPermissionMode(agent.provider),
     };
   }
 

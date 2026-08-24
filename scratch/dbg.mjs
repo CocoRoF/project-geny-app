@@ -1,0 +1,12 @@
+import { _electron as electron } from 'playwright-core';
+const env = { ...process.env, GENY_DATA_ROOT: '/tmp/geny-dbg2' };
+delete env.ELECTRON_RUN_AS_NODE;
+const app = await electron.launch({ args: ['--no-sandbox', '.'], env });
+const page = await app.firstWindow();
+page.on('console', m => console.log('[console:' + m.type() + ']', m.text().slice(0,300)));
+page.on('pageerror', e => console.log('[pageerror]', String(e).slice(0,400)));
+await page.waitForTimeout(6000);
+console.log('URL:', page.url());
+console.log('TITLE:', await page.title());
+console.log('BODY:', JSON.stringify((await page.locator('body').innerText().catch(()=>'<none>')).slice(0,300)));
+await app.close();

@@ -26,7 +26,13 @@ IDLE_EVICT_SECONDS = 30 * 60
 
 # engine event → fast-path UI event
 _TEXT_EVENTS = {"text.delta", "api.text_delta"}
-_TOOL_START = {"api.tool_use", "tool.start", "tool.dispatch"}
+# `api.tool_use` and `api.cli_tool_call` describe the SAME call (the CLI
+# backend emits both), and each fires twice — once with an empty input while
+# the arguments are still streaming, then with the full input. Emitting them
+# raw produced four cards per call and `?` for every result, because
+# `api.tool_result` carries only tool_use_id. Dedupe by tool_use_id, keep the
+# richer payload, and remember the name so results can be attributed.
+_TOOL_START = {"api.tool_use", "api.cli_tool_call", "tool.start", "tool.dispatch"}
 _TOOL_RESULT = {"api.tool_result", "tool.result", "tool.complete"}
 _TOOL_ERROR = {"tool.error", "tool.failed"}
 _USAGE_EVENTS = {"token.usage", "api.usage", "token.recorded"}
@@ -60,6 +66,8 @@ class Daemon:
         self._turns: dict[str, asyncio.Task[None]] = {}
         self._cancelled: set[str] = set()
         self._stopping = asyncio.Event()
+        # per-turn tool bookkeeping: tool_use_id → (name, payload-signature)
+        self._tools: dict[str, dict[str, tuple[str, str]]] = {}
 
     # ── session registry ───────────────────────────────────────────
     async def session(self, sid: str, config: SessionConfig) -> AgentSession:
@@ -162,6 +170,7 @@ class Daemon:
 
     def _close_turn(self, turn_id: str, terminal: dict[str, Any]) -> None:
         self._cancelled.discard(turn_id)
+        self._tools.pop(turn_id, None)
         self.host.cancel_prompts_for_turn(turn_id)
         emit(terminal)
 
@@ -178,23 +187,15 @@ class Daemon:
             if isinstance(chunk, str) and chunk:
                 emit({"id": turn_id, "type": "chunk", "text": chunk})
         elif name in _TOOL_START:
-            emit({
-                "id": turn_id, "type": "tool", "phase": "start",
-                "name": str(_pick(data, "name", "tool", "tool_name") or "?"),
-                "toolUseId": _pick(data, "tool_use_id", "id"),
-                "payload": shrink(_pick(data, "input", "args"), 1200),
-            })
+            self._emit_tool_start(turn_id, data)
         elif name in _TOOL_RESULT:
-            emit({
-                "id": turn_id, "type": "tool", "phase": "result",
-                "name": str(_pick(data, "name", "tool", "tool_name") or "?"),
-                "toolUseId": _pick(data, "tool_use_id", "id"),
-                "payload": shrink(_pick(data, "result", "content", "output"), 1200),
-            })
+            self._emit_tool_result(turn_id, data)
         elif name in _TOOL_ERROR:
+            tool_id = str(_pick(data, "tool_use_id", "id") or "")
             emit({
                 "id": turn_id, "type": "tool", "phase": "error",
-                "name": str(_pick(data, "name", "tool", "tool_name") or "?"),
+                "name": self._tool_name(turn_id, tool_id, data),
+                "toolUseId": tool_id or None,
                 "payload": shrink(data, 1200),
             })
         elif name in _USAGE_EVENTS:
@@ -220,6 +221,44 @@ class Daemon:
             emit({"id": turn_id, "type": "notice", "level": "error", "message": text})
             return {"message": text, "code": str(code) if code else None}
         return None
+
+    # ── tool event normalization ───────────────────────────────────
+    def _tool_name(self, turn_id: str, tool_id: str, data: Any) -> str:
+        direct = _pick(data, "name", "tool", "tool_name")
+        if direct:
+            return str(direct)
+        known = self._tools.get(turn_id, {}).get(tool_id)
+        return known[0] if known else "?"
+
+    def _emit_tool_start(self, turn_id: str, data: Any) -> None:
+        tool_id = str(_pick(data, "tool_use_id", "id") or "")
+        name = str(_pick(data, "name", "tool", "tool_name") or "?")
+        payload = _pick(data, "input", "args")
+        signature = json.dumps(payload, ensure_ascii=False, default=str, sort_keys=True) if payload else ""
+        seen = self._tools.setdefault(turn_id, {})
+        previous = seen.get(tool_id) if tool_id else None
+        # same call, same (or emptier) arguments → already shown
+        if previous is not None and (signature == previous[1] or not signature):
+            return
+        if tool_id:
+            seen[tool_id] = (name, signature)
+        emit({
+            "id": turn_id, "type": "tool", "phase": "start", "name": name,
+            "toolUseId": tool_id or None,
+            "payload": shrink(payload, 1200),
+        })
+
+    def _emit_tool_result(self, turn_id: str, data: Any) -> None:
+        tool_id = str(_pick(data, "tool_use_id", "id") or "")
+        content = _pick(data, "result", "content", "output")
+        failed = bool(_pick(data, "is_error"))
+        emit({
+            "id": turn_id, "type": "tool",
+            "phase": "error" if failed else "result",
+            "name": self._tool_name(turn_id, tool_id, data),
+            "toolUseId": tool_id or None,
+            "payload": shrink(content if content is not None else data, 1200),
+        })
 
     # ── commands ───────────────────────────────────────────────────
     async def dispatch(self, cmd: dict[str, Any]) -> None:

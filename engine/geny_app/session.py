@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Optional
 
@@ -112,22 +112,57 @@ class AgentSession:
             built_in_tools=self.config.built_in_tools or DEFAULT_TOOLS,
             name=f"agent-{self.session_id}",
         )
+        # build_manifest emits stage-4 `chain_order` for guards that the
+        # default chain does not contain, so strict load logs
+        # `chain.order_unappliable` and installs NO guards at all (the
+        # permission guard included). Drop the unappliable declaration rather
+        # than ship a warning on every boot; real guards are installed
+        # explicitly once the app owns its permission policy.
+        for stage in manifest.stages:
+            if stage.get("name") == "guard" and stage.get("chain_order"):
+                stage.pop("chain_order", None)
+
         # local, zero-API-call memory: the engine's pure-python file provider
         manifest.memory = {
             "provider": "file",
             "config": {"root": str(memory), "session_id": self.session_id},
         }
-        creds = CredentialBundle(
-            by_provider={
-                self.config.provider: ProviderCredentials(
-                    api_key=self.config.api_key or "",
-                    base_url=self.config.base_url,
-                )
-            }
-        )
+        creds = CredentialBundle(by_provider={self.config.provider: self._credentials(workspace)})
         pipeline = await Pipeline.from_manifest_async(manifest, credentials=creds)
         pipeline.attach_runtime(tool_context=self._tool_context(workspace))
         return pipeline
+
+    def _credentials(self, workspace: Path) -> ProviderCredentials:
+        """Provider credentials, plus the CLI-only extras that decide WHERE
+        tools run.
+
+        Asymmetry worth knowing: with the API providers (anthropic/openai) the
+        engine executes tools in-process, so `ToolContext.allowed_paths` is the
+        jail. With `claude_code_cli` the CLI executes its own tools in its own
+        cwd — our jail does not apply. Without `workspace_dir` the CLI inherits
+        the sidecar's cwd and writes into the APP'S OWN SOURCE TREE (observed:
+        it created x.txt in the repo root). And with the CLI's default
+        permission mode it cannot ask anyone — there is no tty — so every edit
+        is refused and the agent loops retrying. Hence: workspace as cwd,
+        `acceptEdits` inside it.
+        """
+        creds = ProviderCredentials(
+            api_key=self.config.api_key or "",
+            base_url=self.config.base_url,
+        )
+        if self.config.provider != "claude_code_cli":
+            return creds
+        extras = dict(getattr(creds, "extras", None) or {})
+        extras.setdefault("workspace_dir", str(workspace))
+        extras.setdefault(
+            "default_permission_mode",
+            "acceptEdits" if self.config.permission_mode == "default" else self.config.permission_mode,
+        )
+        try:
+            return replace(creds, extras=extras)
+        except Exception:
+            creds.extras = extras  # type: ignore[attr-defined]
+            return creds
 
     async def pipeline(self) -> Pipeline:
         if self._pipeline is None:
