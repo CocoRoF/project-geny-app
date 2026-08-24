@@ -14,6 +14,7 @@ import { openStore } from './db';
 import { EngineService } from './engine-service';
 import { BrowserHost } from './browser-tools';
 import { buildHostTools } from './host-tools';
+import { ensureStarters } from './personas';
 import { DEFAULT_SHORTCUT, QuickChat, quickChatPaths } from './quick-chat';
 import { forwardEvent, registerIpc } from './ipc';
 import { createSecretStore } from './secrets';
@@ -70,6 +71,8 @@ async function boot(): Promise<void> {
     isPackaged: app.isPackaged,
   });
   const paths = layout(resolved.dataRoot);
+  // written once so the folder is never empty and the format documents itself
+  ensureStarters(resolved.dataRoot);
   // user-authored capability folders — created empty so they are
   // discoverable in the file manager rather than documented-only
   for (const sub of ['skills', 'commands']) {

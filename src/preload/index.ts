@@ -21,6 +21,12 @@ const api: GenyApi = {
     start: () => ipcRenderer.invoke('engine:start'),
     onStatus: (cb) => subscribe<EngineStatus>('engine:statusEvent', cb),
   },
+  personas: {
+    list: () => ipcRenderer.invoke('personas:list'),
+    save: (input) => ipcRenderer.invoke('personas:save', input),
+    applyTo: (agentId, personaId) => ipcRenderer.invoke('personas:applyTo', agentId, personaId),
+    openFolder: () => ipcRenderer.invoke('personas:openFolder'),
+  },
   agents: {
     list: () => ipcRenderer.invoke('agents:list'),
     create: (input) => ipcRenderer.invoke('agents:create', input) as Promise<AgentRecord>,

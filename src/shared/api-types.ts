@@ -90,6 +90,17 @@ export interface AppPaths {
   portable: boolean;
 }
 
+export interface PersonaRecord {
+  id: string;
+  name: string;
+  description?: string;
+  model?: string;
+  posture?: AgentPosture;
+  tools?: string[];
+  prompt: string;
+  userDefined: boolean;
+}
+
 export interface GenyApi {
   app: {
     paths(): Promise<AppPaths>;
@@ -103,6 +114,13 @@ export interface GenyApi {
     start(): Promise<EngineStatus>;
     onStatus(cb: (s: EngineStatus) => void): () => void;
   };
+  personas: {
+    list(): Promise<PersonaRecord[]>;
+    save(input: Omit<PersonaRecord, 'id' | 'userDefined'> & { id?: string }): Promise<PersonaRecord>;
+    /** copy a persona's prompt/model/posture/tools onto an existing agent */
+    applyTo(agentId: string, personaId: string): Promise<AgentRecord>;
+    openFolder(): Promise<void>;
+  };
   agents: {
     list(): Promise<AgentRecord[]>;
     create(input: {
@@ -110,6 +128,8 @@ export interface GenyApi {
       provider: TurnConfig['provider'];
       model?: string;
       posture?: AgentPosture;
+      /** start from a persona: its prompt, model, posture and tools */
+      personaId?: string;
     }): Promise<AgentRecord>;
     update(
       id: string,

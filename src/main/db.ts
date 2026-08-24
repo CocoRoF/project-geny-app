@@ -172,7 +172,7 @@ export function openStore(file: string): Store {
 
   const stmt = {
     insertAgent: db.prepare(
-      'INSERT INTO agents (id,name,provider,model,dir,created_at,posture,system_prompt) VALUES (?,?,?,?,?,?,?,?)',
+      'INSERT INTO agents (id,name,provider,model,dir,created_at,posture,system_prompt,tools) VALUES (?,?,?,?,?,?,?,?,?)',
     ),
     listAgents: db.prepare('SELECT * FROM agents ORDER BY created_at DESC'),
     getAgent: db.prepare('SELECT * FROM agents WHERE id = ?'),
@@ -214,6 +214,7 @@ export function openStore(file: string): Store {
         stmt.insertAgent.run(
           a.id, a.name, a.provider, a.model ?? null, a.dir, a.createdAt,
           a.posture, a.systemPrompt ?? null,
+          a.tools ? JSON.stringify(a.tools) : null,
         );
       },
       update: (id, patch) => {

@@ -12,6 +12,7 @@ import { detectCli } from './cli-detect';
 import { listDir, preview } from './fs-browse';
 import type { SidecarEvent } from '@shared/sidecar-protocol';
 import type { Store } from './db';
+import { listPersonas, personaDir, savePersona } from './personas';
 import type { EngineService } from './engine-service';
 import type { Updater } from './updater';
 import type { Layout } from './data-root';
@@ -25,6 +26,10 @@ export const CHANNELS = {
   engineStatus: 'engine:status',
   engineStart: 'engine:start',
   engineStatusEvent: 'engine:statusEvent',
+  personasList: 'personas:list',
+  personasSave: 'personas:save',
+  personasApply: 'personas:applyTo',
+  personasFolder: 'personas:openFolder',
   agentsList: 'agents:list',
   agentsCreate: 'agents:create',
   agentsUpdate: 'agents:update',
@@ -93,6 +98,30 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNELS.engineStatus, () => deps.engine.getStatus());
   ipcMain.handle(CHANNELS.engineStart, () => deps.engine.start());
 
+  ipcMain.handle(CHANNELS.personasList, () => listPersonas(deps.paths.dataRoot));
+  ipcMain.handle(CHANNELS.personasSave, (_e, input: Parameters<typeof savePersona>[1]) =>
+    savePersona(deps.paths.dataRoot, input),
+  );
+  ipcMain.handle(CHANNELS.personasFolder, async () => {
+    await deps.shell.openPath(personaDir(deps.paths.dataRoot));
+  });
+  ipcMain.handle(CHANNELS.personasApply, (_e, agentId: string, personaId: string) => {
+    const persona = listPersonas(deps.paths.dataRoot).find((p) => p.id === personaId);
+    if (!persona) throw new Error(`unknown persona ${personaId}`);
+    // a persona sets what it declares and leaves the rest alone — applying
+    // "조사원" should not silently reset a model the user chose on purpose
+    deps.store.agents.update(agentId, {
+      systemPrompt: persona.prompt,
+      ...(persona.model ? { model: persona.model } : {}),
+      ...(persona.posture ? { posture: persona.posture } : {}),
+      ...(persona.tools ? { tools: persona.tools } : {}),
+    });
+    const updated = deps.store.agents.get(agentId);
+    if (!updated) throw new Error(`unknown agent ${agentId}`);
+    deps.engine.refresh(updated);
+    return updated;
+  });
+
   ipcMain.handle(CHANNELS.agentsList, () => deps.store.agents.list());
   ipcMain.handle(
     CHANNELS.agentsCreate,
@@ -103,17 +132,25 @@ export function registerIpc(deps: IpcDeps): void {
         provider: AgentRecord['provider'];
         model?: string;
         posture?: AgentRecord['posture'];
+        personaId?: string;
       },
     ) => {
       const id = randomUUID();
+      // a persona seeds the agent; anything the caller passed explicitly
+      // wins, because the user picking a model in the dialog means it
+      const persona = input.personaId
+        ? listPersonas(deps.paths.dataRoot).find((p) => p.id === input.personaId)
+        : undefined;
       const record: AgentRecord = {
         id,
-        name: input.name.trim() || 'Agent',
+        name: input.name.trim() || persona?.name || 'Agent',
         provider: input.provider,
         // never inherit the engine's default: its CLI model id does not
         // exist in the installed CLI, which hangs instead of erroring
-        model: input.model?.trim() || defaultModel(input.provider),
-        posture: input.posture ?? 'standard',
+        model: input.model?.trim() || persona?.model || defaultModel(input.provider),
+        posture: input.posture ?? persona?.posture ?? 'standard',
+        systemPrompt: persona?.prompt,
+        tools: persona?.tools,
         dir: deps.agentDir(id),
         createdAt: Date.now(),
       };
@@ -123,7 +160,7 @@ export function registerIpc(deps: IpcDeps): void {
   );
   ipcMain.handle(
     CHANNELS.agentsUpdate,
-    (_e, id: string, patch: Partial<Pick<AgentRecord, 'name' | 'model' | 'posture' | 'systemPrompt'>>) => {
+    (_e, id: string, patch: Partial<Pick<AgentRecord, 'name' | 'model' | 'posture' | 'systemPrompt' | 'tools'>>) => {
       deps.store.agents.update(id, patch);
       const updated = deps.store.agents.get(id);
       if (!updated) throw new Error(`unknown agent ${id}`);

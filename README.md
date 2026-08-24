@@ -26,6 +26,7 @@
 | **권한** | 신중 / 표준 / 신뢰 — 위험한 작업은 앱에서 승인 |
 | **대화 영속** | 앱을 껐다 켜도 대화와 **엔진 컨텍스트**가 이어집니다 |
 | **MCP** | 서버 등록 → 에이전트별 on/off. *실제로 연결됐는지* 엔진에 물어 보여줍니다 |
+| **페르소나** | 역할·규칙·모델·도구를 한 묶음으로. `<데이터>/personas/*.md` — 열어서 고칠 수 있습니다 |
 | **스킬 · 명령어** | `<데이터>/skills`, `<데이터>/commands` 에 넣으면 자동 인식 |
 | **파일** | workspace · artifacts · memory 탐색, 텍스트/이미지 미리보기 |
 | **백그라운드** | Task(파일 영속) · Cron(러너가 실제로 발화) — 예약이 있는 세션은 정리하지 않습니다 |
@@ -84,6 +85,7 @@ npm run dist            # 파이썬 동봉 → 검증 → 인스톨러
 | `node test/tool-selection.mjs` | 에이전트별 도구 on/off 가 엔진에 반영 (모델 필요) |
 | `node test/quick-chat.mjs` | 전역 단축키 등록 · 퀵챗이 본 창과 상태 공유 |
 | `node test/browser-tools.mjs` | 에이전트 브라우저가 실제로 입력·클릭·읽기 수행 |
+| `node test/personas.mjs` | 페르소나가 에이전트의 프롬프트·태도·도구를 실제로 구성 |
 | `node scripts/verify-bundle.mjs` | 동봉 파이썬이 실제로 돌고 프로토콜을 말하는지 |
 
 Linux 개발 실행에서 `chrome-sandbox` SUID 가 없으면 SIGTRAP — `--no-sandbox` 로 우회합니다.

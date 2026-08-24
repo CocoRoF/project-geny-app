@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { AgentRecord } from '@shared/api-types';
 import type { AgentPosture } from '@shared/sidecar-protocol';
+import type { PersonaRecord } from '@shared/api-types';
 import { useApp } from '../store/app-store';
 import type { JSX } from 'react';
 
@@ -23,12 +24,18 @@ export function AgentSidebar(): JSX.Element {
   const select = useApp((s) => s.selectAgent);
   const setAgents = useApp((s) => s.setAgents);
   const [creating, setCreating] = useState(false);
+  const [personas, setPersonas] = useState<PersonaRecord[]>([]);
+  const [personaId, setPersonaId] = useState('');
   const [name, setName] = useState('');
   const [provider, setProvider] = useState<AgentRecord['provider']>('anthropic');
   const [posture, setPosture] = useState<AgentPosture>('standard');
 
+  useEffect(() => {
+    if (creating) void window.geny.personas.list().then(setPersonas);
+  }, [creating]);
+
   const create = async (): Promise<void> => {
-    const record = await window.geny.agents.create({ name, provider, posture });
+    const record = await window.geny.agents.create({ personaId: personaId || undefined, name, provider, posture });
     setAgents([record, ...agents]);
     select(record.id);
     setCreating(false);
@@ -60,6 +67,22 @@ export function AgentSidebar(): JSX.Element {
               if (e.key === 'Enter') void create();
             }}
           />
+          {personas.length > 0 && (
+            <select
+              className="rounded bg-black/40 px-2 py-1 text-xs"
+              value={personaId}
+              onChange={(e) => setPersonaId(e.target.value)}
+              title="역할·규칙·도구를 한 번에 가져옵니다"
+            >
+              <option value="">페르소나 없이 시작</option>
+              {personas.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                  {p.description ? ` — ${p.description}` : ''}
+                </option>
+              ))}
+            </select>
+          )}
           <select
             className="rounded bg-black/40 px-2 py-1 text-xs"
             value={provider}
