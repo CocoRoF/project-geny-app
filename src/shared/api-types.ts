@@ -3,16 +3,24 @@
  * ONLY from here — never from main. Adding a capability means adding it
  * here first, which keeps the IPC surface reviewable in one file.
  */
-import type { HitlDecision, SidecarEvent, TurnConfig } from './sidecar-protocol';
+import type { AgentPosture, HitlDecision, SidecarEvent, TurnConfig } from './sidecar-protocol';
 
 export interface AgentRecord {
   id: string;
   name: string;
   provider: TurnConfig['provider'];
   model?: string;
+  posture: AgentPosture;
+  systemPrompt?: string;
   createdAt: number;
   /** absolute path — <data-root>/agents/<id> */
   dir: string;
+}
+
+export interface StoredMessage {
+  role: 'user' | 'assistant' | 'system';
+  text: string;
+  createdAt: number;
 }
 
 export interface EngineStatus {
@@ -42,7 +50,13 @@ export interface GenyApi {
   };
   agents: {
     list(): Promise<AgentRecord[]>;
-    create(input: { name: string; provider: TurnConfig['provider']; model?: string }): Promise<AgentRecord>;
+    create(input: {
+      name: string;
+      provider: TurnConfig['provider'];
+      model?: string;
+      posture?: AgentPosture;
+    }): Promise<AgentRecord>;
+    update(id: string, patch: Partial<Pick<AgentRecord, 'name' | 'model' | 'posture' | 'systemPrompt'>>): Promise<AgentRecord>;
     remove(id: string): Promise<void>;
   };
   secrets: {
@@ -50,6 +64,8 @@ export interface GenyApi {
     hasApiKey(provider: string): Promise<boolean>;
   };
   chat: {
+    /** conversation replayed from the store — survives an app restart */
+    history(agentId: string): Promise<StoredMessage[]>;
     /** start a turn; events arrive via onEvent until a terminal event */
     send(input: { agentId: string; text: string }): Promise<{ turnId: string }>;
     cancel(turnId: string): Promise<void>;

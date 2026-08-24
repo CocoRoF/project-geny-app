@@ -128,6 +128,8 @@ class Daemon:
 
         emit({"id": turn_id, "type": "started", "session": sid})
         count = 0
+        budget = float(config.timeout_seconds or 0) or None
+        started_at = time.monotonic()
         failure: Optional[dict[str, Any]] = None
         try:
             async for ev in pipeline.run_stream(text, session.state()):
@@ -136,9 +138,16 @@ class Daemon:
                 # first failure wins — later events are usually its unwinding
                 if observed is not None and failure is None:
                     failure = observed
+                if budget and time.monotonic() - started_at > budget:
+                    raise TimeoutError(f"turn exceeded {budget:.0f}s")
         except asyncio.CancelledError:
             self._close_turn(turn_id, {"id": turn_id, "type": "cancelled"})
             raise
+        except TimeoutError as exc:
+            self._close_turn(turn_id, {
+                "id": turn_id, "type": "error", "code": "turn.timeout", "error": str(exc),
+            })
+            return
         except QuestionCancelled:
             self._close_turn(turn_id, {"id": turn_id, "type": "cancelled"})
             return

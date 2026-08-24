@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { AgentRecord } from '@shared/api-types';
+import type { AgentPosture } from '@shared/sidecar-protocol';
 import { useApp } from '../store/app-store';
 import type { JSX } from 'react';
 
@@ -7,6 +8,13 @@ const PROVIDERS: Array<{ id: AgentRecord['provider']; label: string }> = [
   { id: 'anthropic', label: 'Anthropic API' },
   { id: 'openai', label: 'OpenAI API' },
   { id: 'claude_code_cli', label: 'Claude Code CLI' },
+];
+
+/** what the agent may do without asking — see engine/geny_app/policy.py */
+const POSTURE_LABELS: Array<{ id: AgentPosture; label: string; hint: string }> = [
+  { id: 'careful', label: '신중', hint: '파일 변경·셸 실행 모두 승인을 받습니다' },
+  { id: 'standard', label: '표준', hint: '워크스페이스 안 편집은 허용, 셸은 승인' },
+  { id: 'trusted', label: '신뢰', hint: '전부 허용 (워크스페이스 경계는 유지)' },
 ];
 
 export function AgentSidebar(): JSX.Element {
@@ -17,9 +25,10 @@ export function AgentSidebar(): JSX.Element {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [provider, setProvider] = useState<AgentRecord['provider']>('anthropic');
+  const [posture, setPosture] = useState<AgentPosture>('standard');
 
   const create = async (): Promise<void> => {
-    const record = await window.geny.agents.create({ name, provider });
+    const record = await window.geny.agents.create({ name, provider, posture });
     setAgents([record, ...agents]);
     select(record.id);
     setCreating(false);
@@ -62,6 +71,21 @@ export function AgentSidebar(): JSX.Element {
               </option>
             ))}
           </select>
+          <select
+            className="rounded bg-black/40 px-2 py-1 text-xs"
+            value={posture}
+            onChange={(e) => setPosture(e.target.value as AgentPosture)}
+            title={POSTURE_LABELS.find((p) => p.id === posture)?.hint}
+          >
+            {POSTURE_LABELS.map((p) => (
+              <option key={p.id} value={p.id}>
+                권한: {p.label}
+              </option>
+            ))}
+          </select>
+          <p className="text-[10px] leading-snug text-dim">
+            {POSTURE_LABELS.find((p) => p.id === posture)?.hint}
+          </p>
           <button
             type="button"
             className="rounded border border-accent/60 px-2 py-1 text-xs text-accent hover:bg-accent/10"

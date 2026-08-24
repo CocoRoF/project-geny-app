@@ -75,6 +75,9 @@ async function boot(): Promise<void> {
     secret: (provider) => secrets.get(`apiKey:${provider}`),
     agentDir: (id) => resolveAgentDir(paths, id),
     emit: (event) => forwardEvent(mainWindow, event),
+    persistAssistant: (agentId, text) => {
+      store.messages.append({ agentId, role: 'assistant', text });
+    },
     onStatus: (status) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('engine:statusEvent', status);

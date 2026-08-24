@@ -22,6 +22,7 @@ const api: GenyApi = {
   agents: {
     list: () => ipcRenderer.invoke('agents:list'),
     create: (input) => ipcRenderer.invoke('agents:create', input) as Promise<AgentRecord>,
+    update: (id, patch) => ipcRenderer.invoke('agents:update', id, patch) as Promise<AgentRecord>,
     remove: (id) => ipcRenderer.invoke('agents:remove', id),
   },
   secrets: {
@@ -29,6 +30,7 @@ const api: GenyApi = {
     hasApiKey: (provider) => ipcRenderer.invoke('secrets:hasApiKey', provider),
   },
   chat: {
+    history: (agentId) => ipcRenderer.invoke('chat:history', agentId),
     send: (input) => ipcRenderer.invoke('chat:send', input),
     cancel: (turnId) => ipcRenderer.invoke('chat:cancel', turnId),
     replyPrompt: (promptId, value) => ipcRenderer.invoke('chat:replyPrompt', promptId, value),

@@ -8,7 +8,6 @@ turn boundaries, aclose() on eviction.
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -22,6 +21,8 @@ from geny_executor import (
     build_manifest,
 )
 from geny_executor.tools.base import ToolContext
+
+from . import policy, state_store
 
 DEFAULT_TOOLS = [
     "Read", "Write", "Edit", "Bash", "Glob", "Grep", "TodoWrite",
@@ -43,8 +44,10 @@ class SessionConfig:
     allowed_paths: Optional[list[str]] = None
     built_in_tools: Optional[list[str]] = None
     permission_mode: str = "default"
+    posture: str = policy.DEFAULT_POSTURE
     system_prompt: Optional[str] = None
     max_turns: Optional[int] = None
+    timeout_seconds: Optional[float] = None
     extras: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -59,8 +62,10 @@ class SessionConfig:
             allowed_paths=raw.get("allowedPaths"),
             built_in_tools=raw.get("builtInTools"),
             permission_mode=raw.get("permissionMode") or "default",
+            posture=raw.get("posture") or policy.DEFAULT_POSTURE,
             system_prompt=raw.get("systemPrompt"),
             max_turns=raw.get("maxTurns"),
+            timeout_seconds=raw.get("timeoutSeconds"),
             extras=raw.get("extras") or {},
         )
 
@@ -76,6 +81,8 @@ class AgentSession:
         self._state: Optional[PipelineState] = None
         self._lock = asyncio.Lock()
         self.last_used = time.time()
+        #: True when this session's conversation came back from disk
+        self.restored = False
 
     # ── directories ────────────────────────────────────────────────
     @property
@@ -98,7 +105,11 @@ class AgentSession:
             working_dir=str(workspace),
             storage_path=str(self.agent_dir),
             allowed_paths=jail,
-            permission_mode=self.config.permission_mode,
+            # the app states its policy explicitly: the engine's matrix
+            # allows on no-match, and the manifest's guard chain never
+            # installs, so inheriting the default means "anything goes"
+            permission_mode=policy.mode_for(self.config.posture),
+            permission_rules=policy.rules_for(self.config.posture),
             extras=self._host.build_extras(self),
         )
 
@@ -112,6 +123,21 @@ class AgentSession:
             built_in_tools=self.config.built_in_tools or DEFAULT_TOOLS,
             name=f"agent-{self.session_id}",
         )
+        # The adaptive router REWRITES the caller's model: it resolved
+        # "sonnet" to "claude-sonnet-4-6", a model the installed CLI does not
+        # know — and an unknown model makes the CLI hang rather than fail, so
+        # the turn span until the timeout with no diagnosis. Its tier table
+        # is pinned to whatever was current when the engine shipped, which a
+        # desktop app cannot keep in sync. The user's model choice is honoured
+        # exactly instead; silent substitution is worse than a missed cost
+        # optimisation.
+        for stage in manifest.stages:
+            if stage.get("name") == "api":
+                strategies = dict(stage.get("strategies") or {})
+                if strategies.get("router") == "adaptive":
+                    strategies["router"] = "passthrough"
+                    stage["strategies"] = strategies
+
         # build_manifest emits stage-4 `chain_order` for guards that the
         # default chain does not contain, so strict load logs
         # `chain.order_unappliable` and installs NO guards at all (the
@@ -154,10 +180,11 @@ class AgentSession:
             return creds
         extras = dict(getattr(creds, "extras", None) or {})
         extras.setdefault("workspace_dir", str(workspace))
-        extras.setdefault(
-            "default_permission_mode",
-            "acceptEdits" if self.config.permission_mode == "default" else self.config.permission_mode,
-        )
+        extras.setdefault("default_permission_mode", policy.cli_mode_for(self.config.posture))
+        # an unknown model makes the CLI hang rather than fail (observed with
+        # the engine's default id) — bound it so the turn can report an error
+        if self.config.timeout_seconds:
+            extras.setdefault("timeout_s", float(self.config.timeout_seconds))
         try:
             return replace(creds, extras=extras)
         except Exception:
@@ -183,28 +210,28 @@ class AgentSession:
 
     # ── state ──────────────────────────────────────────────────────
     def state(self) -> PipelineState:
+        """The conversation. Restored from disk the first time it is asked
+        for, so a restarted app continues the same session rather than
+        silently starting a new one with the same name."""
         if self._state is None:
-            self._state = PipelineState(session_id=self.session_id)
+            state = PipelineState(session_id=self.session_id)
+            self._ensure_dirs()
+            self.restored = state_store.load_into(self.state_path(), state)
+            self._state = state
         return self._state
 
     def state_path(self) -> Path:
         return self.agent_dir / "sessions" / f"{self.session_id}.json"
 
     def save_state(self) -> None:
-        """Best-effort snapshot so a restart can resume the conversation."""
+        """Snapshot after every turn. Best-effort: a failed save must never
+        take down a turn that already succeeded."""
         state = self._state
         if state is None:
             return
-        payload: dict[str, Any] = {"session_id": self.session_id, "saved_at": time.time()}
-        for attr in ("messages", "history", "turn_count"):
-            value = getattr(state, attr, None)
-            if value is not None:
-                payload[attr] = value
         try:
             self._ensure_dirs()
-            self.state_path().write_text(
-                json.dumps(payload, ensure_ascii=False, default=str), encoding="utf-8"
-            )
+            state_store.save(self.state_path(), state)
         except Exception:
             pass
 

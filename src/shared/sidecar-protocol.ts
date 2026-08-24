@@ -25,6 +25,11 @@ export type SidecarCommand =
 
 export type HitlDecision = 'approve' | 'reject' | 'cancel';
 
+/** careful = mutation asks · standard = edits allowed in the jail, shell asks
+ *  · trusted = everything allowed (still jailed by allowedPaths) */
+export type AgentPosture = 'careful' | 'standard' | 'trusted';
+export const POSTURES: readonly AgentPosture[] = ['careful', 'standard', 'trusted'];
+
 /** Everything the engine needs to build (or refresh) one agent pipeline. */
 export interface TurnConfig {
   provider: 'anthropic' | 'openai' | 'claude_code_cli';
@@ -40,8 +45,13 @@ export interface TurnConfig {
   builtInTools?: string[];
   /** 'default' asks for risky ops; the app never ships 'bypass' as default */
   permissionMode?: 'default' | 'plan' | 'auto' | 'acceptEdits' | 'dontAsk' | 'bypass';
+  /** how much the agent may do without asking — see engine/geny_app/policy.py */
+  posture?: AgentPosture;
   systemPrompt?: string;
   maxTurns?: number;
+  /** hard ceiling for one turn — a hung CLI must surface as an error, not
+   *  as a spinner that never stops */
+  timeoutSeconds?: number;
   extras?: Record<string, unknown>;
 }
 

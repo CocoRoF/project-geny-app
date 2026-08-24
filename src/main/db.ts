@@ -12,7 +12,10 @@
  * that are obvious in a diff, not a framework.
  */
 import { DatabaseSync } from 'node:sqlite';
-import type { AgentRecord } from '@shared/api-types';
+import type { AgentRecord, StoredMessage } from '@shared/api-types';
+import type { AgentPosture } from '@shared/sidecar-protocol';
+
+export type AgentPatch = Partial<Pick<AgentRecord, 'name' | 'model' | 'posture' | 'systemPrompt'>>;
 
 export interface Store {
   raw: DatabaseSync;
@@ -20,11 +23,13 @@ export interface Store {
     list(): AgentRecord[];
     get(id: string): AgentRecord | undefined;
     insert(a: AgentRecord): void;
+    update(id: string, patch: AgentPatch): void;
     remove(id: string): void;
   };
   messages: {
     append(m: { agentId: string; role: string; text: string; meta?: unknown }): void;
-    recent(agentId: string, limit?: number): Array<{ role: string; text: string; createdAt: number }>;
+    recent(agentId: string, limit?: number): StoredMessage[];
+    clear(agentId: string): void;
   };
   settings: {
     get(key: string): string | undefined;
@@ -53,16 +58,33 @@ const MIGRATIONS: string[] = [
    );
    CREATE INDEX messages_agent_idx ON messages(agent_id, id);
    CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`,
+  // v2 — permission posture and per-agent system prompt
+  `ALTER TABLE agents ADD COLUMN posture TEXT NOT NULL DEFAULT 'standard';
+   ALTER TABLE agents ADD COLUMN system_prompt TEXT;`,
 ];
+
+const nullable = (v: unknown): string | undefined =>
+  v === null || v === undefined ? undefined : String(v);
 
 const toAgent = (r: Record<string, unknown>): AgentRecord => ({
   id: String(r.id),
   name: String(r.name),
   provider: r.provider as AgentRecord['provider'],
-  model: r.model === null || r.model === undefined ? undefined : String(r.model),
+  model: nullable(r.model),
+  posture: (nullable(r.posture) ?? 'standard') as AgentPosture,
+  systemPrompt: nullable(r.system_prompt),
   dir: String(r.dir),
   createdAt: Number(r.created_at),
 });
+
+/** column per patch key — keeps the UPDATE builder from touching anything
+ *  a caller did not name */
+const AGENT_COLUMNS: Record<keyof AgentPatch, string> = {
+  name: 'name',
+  model: 'model',
+  posture: 'posture',
+  systemPrompt: 'system_prompt',
+};
 
 export function openStore(file: string): Store {
   const db = new DatabaseSync(file);
@@ -87,10 +109,13 @@ export function openStore(file: string): Store {
   }
 
   const stmt = {
-    insertAgent: db.prepare('INSERT INTO agents (id,name,provider,model,dir,created_at) VALUES (?,?,?,?,?,?)'),
+    insertAgent: db.prepare(
+      'INSERT INTO agents (id,name,provider,model,dir,created_at,posture,system_prompt) VALUES (?,?,?,?,?,?,?,?)',
+    ),
     listAgents: db.prepare('SELECT * FROM agents ORDER BY created_at DESC'),
     getAgent: db.prepare('SELECT * FROM agents WHERE id = ?'),
     deleteAgent: db.prepare('DELETE FROM agents WHERE id = ?'),
+    clearMessages: db.prepare('DELETE FROM messages WHERE agent_id = ?'),
     insertMessage: db.prepare('INSERT INTO messages (agent_id,role,text,meta,created_at) VALUES (?,?,?,?,?)'),
     recentMessages: db.prepare(
       'SELECT role,text,created_at AS createdAt FROM messages WHERE agent_id = ? ORDER BY id DESC LIMIT ?',
@@ -110,7 +135,22 @@ export function openStore(file: string): Store {
         return row ? toAgent(row) : undefined;
       },
       insert: (a) => {
-        stmt.insertAgent.run(a.id, a.name, a.provider, a.model ?? null, a.dir, a.createdAt);
+        stmt.insertAgent.run(
+          a.id, a.name, a.provider, a.model ?? null, a.dir, a.createdAt,
+          a.posture, a.systemPrompt ?? null,
+        );
+      },
+      update: (id, patch) => {
+        const sets: string[] = [];
+        const values: Array<string | null> = [];
+        for (const [key, column] of Object.entries(AGENT_COLUMNS)) {
+          const value = patch[key as keyof AgentPatch];
+          if (value === undefined) continue;
+          sets.push(`${column} = ?`);
+          values.push(value === null ? null : String(value));
+        }
+        if (sets.length === 0) return;
+        db.prepare(`UPDATE agents SET ${sets.join(', ')} WHERE id = ?`).run(...values, id);
       },
       remove: (id) => {
         stmt.deleteAgent.run(id);
@@ -120,8 +160,17 @@ export function openStore(file: string): Store {
       append: (m) => {
         stmt.insertMessage.run(m.agentId, m.role, m.text, m.meta ? JSON.stringify(m.meta) : null, Date.now());
       },
-      recent: (agentId, limit = 100) =>
-        (stmt.recentMessages.all(agentId, limit) as Array<{ role: string; text: string; createdAt: number }>).reverse(),
+      recent: (agentId, limit = 200) =>
+        (stmt.recentMessages.all(agentId, limit) as Array<Record<string, unknown>>)
+          .map((r) => ({
+            role: String(r.role) as StoredMessage['role'],
+            text: String(r.text),
+            createdAt: Number(r.createdAt),
+          }))
+          .reverse(),
+      clear: (agentId) => {
+        stmt.clearMessages.run(agentId);
+      },
     },
     settings: {
       get: (key) => (stmt.getSetting.get(key) as { value: string } | undefined)?.value,

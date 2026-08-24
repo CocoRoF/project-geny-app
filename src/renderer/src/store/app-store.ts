@@ -4,7 +4,7 @@
  * what it was told, which is why a stuck turn is visible instead of silent.
  */
 import { create } from 'zustand';
-import type { AgentRecord, EngineStatus } from '@shared/api-types';
+import type { AgentRecord, EngineStatus, StoredMessage } from '@shared/api-types';
 import type { SidecarEvent } from '@shared/sidecar-protocol';
 
 export interface ToolCard {
@@ -52,6 +52,7 @@ interface AppState {
   setAgents(a: AgentRecord[]): void;
   selectAgent(id: string | null): void;
   setPaths(p: { dataRoot: string; portable: boolean }): void;
+  hydrate(agentId: string, messages: StoredMessage[]): void;
   pushUser(agentId: string, text: string): void;
   beginTurn(agentId: string, turnId: string): void;
   applyEvent(e: SidecarEvent): void;
@@ -77,6 +78,24 @@ export const useApp = create<AppState>((set, get) => ({
     set((s) => ({ agents, activeAgentId: s.activeAgentId ?? agents[0]?.id ?? null })),
   selectAgent: (activeAgentId) => set({ activeAgentId }),
   setPaths: ({ dataRoot, portable }) => set({ dataRoot, portable }),
+
+  hydrate: (agentId, messages) =>
+    set((s) => {
+      // only seed an empty pane — never clobber a live turn
+      if ((s.entries[agentId] ?? []).length > 0) return s;
+      return {
+        entries: {
+          ...s.entries,
+          [agentId]: messages.map((m, i) => ({
+            id: `h-${agentId}-${i}`,
+            role: m.role,
+            text: m.text,
+            tools: [],
+            outcome: m.role === 'assistant' ? ('done' as const) : undefined,
+          })),
+        },
+      };
+    }),
 
   pushUser: (agentId, text) =>
     set((s) => ({

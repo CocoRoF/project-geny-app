@@ -17,11 +17,24 @@ export function ChatPane(): JSX.Element {
   const entries = (activeId ? entryMap[activeId] : undefined) ?? EMPTY;
   const activeTurn = useApp((s) => s.activeTurn);
   const pushUser = useApp((s) => s.pushUser);
+  const hydrate = useApp((s) => s.hydrate);
   const beginTurn = useApp((s) => s.beginTurn);
   const [draft, setDraft] = useState('');
   const bottom = useRef<HTMLDivElement>(null);
 
   const agent = agents.find((a) => a.id === activeId) ?? null;
+
+  // a restarted app must show the conversation, not an empty pane
+  useEffect(() => {
+    if (!activeId) return;
+    let cancelled = false;
+    void window.geny.chat.history(activeId).then((messages) => {
+      if (!cancelled) hydrate(activeId, messages);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeId, hydrate]);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'end' });

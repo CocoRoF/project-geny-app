@@ -6,6 +6,7 @@
 import { randomUUID } from 'node:crypto';
 import type { BrowserWindow, IpcMain, Shell } from 'electron';
 import type { AgentRecord, AppPaths } from '@shared/api-types';
+import { defaultModel } from '@shared/models';
 import type { SidecarEvent } from '@shared/sidecar-protocol';
 import type { Store } from './db';
 import type { EngineService } from './engine-service';
@@ -20,9 +21,11 @@ export const CHANNELS = {
   engineStatusEvent: 'engine:statusEvent',
   agentsList: 'agents:list',
   agentsCreate: 'agents:create',
+  agentsUpdate: 'agents:update',
   agentsRemove: 'agents:remove',
   secretsSet: 'secrets:setApiKey',
   secretsHas: 'secrets:hasApiKey',
+  chatHistory: 'chat:history',
   chatSend: 'chat:send',
   chatCancel: 'chat:cancel',
   chatReplyPrompt: 'chat:replyPrompt',
@@ -61,19 +64,45 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNELS.agentsList, () => deps.store.agents.list());
   ipcMain.handle(
     CHANNELS.agentsCreate,
-    (_e, input: { name: string; provider: AgentRecord['provider']; model?: string }) => {
+    (
+      _e,
+      input: {
+        name: string;
+        provider: AgentRecord['provider'];
+        model?: string;
+        posture?: AgentRecord['posture'];
+      },
+    ) => {
       const id = randomUUID();
       const record: AgentRecord = {
         id,
         name: input.name.trim() || 'Agent',
         provider: input.provider,
-        model: input.model,
+        // never inherit the engine's default: its CLI model id does not
+        // exist in the installed CLI, which hangs instead of erroring
+        model: input.model?.trim() || defaultModel(input.provider),
+        posture: input.posture ?? 'standard',
         dir: deps.agentDir(id),
         createdAt: Date.now(),
       };
       deps.store.agents.insert(record);
       return record;
     },
+  );
+  ipcMain.handle(
+    CHANNELS.agentsUpdate,
+    (_e, id: string, patch: Partial<Pick<AgentRecord, 'name' | 'model' | 'posture' | 'systemPrompt'>>) => {
+      deps.store.agents.update(id, patch);
+      const updated = deps.store.agents.get(id);
+      if (!updated) throw new Error(`unknown agent ${id}`);
+      // config changes must reach a live session at the next turn boundary,
+      // not the next app start
+      deps.engine.refresh(updated);
+      return updated;
+    },
+  );
+  ipcMain.handle(CHANNELS.chatHistory, (_e, agentId: string) =>
+    deps.store.messages.recent(agentId),
   );
   ipcMain.handle(CHANNELS.agentsRemove, (_e, id: string) => {
     deps.store.agents.remove(id);

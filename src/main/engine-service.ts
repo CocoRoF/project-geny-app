@@ -8,6 +8,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { AgentRecord, EngineStatus } from '@shared/api-types';
+import { TURN_TIMEOUT_SECONDS } from '@shared/models';
 import type { SidecarEvent, TurnConfig } from '@shared/sidecar-protocol';
 import { locateRuntime, type LocateInput } from './runtime-locate';
 import { SidecarDaemon } from './sidecar';
@@ -20,6 +21,9 @@ export interface EngineDeps {
   agentDir(agentId: string): string;
   emit(event: SidecarEvent): void;
   onStatus(status: EngineStatus): void;
+  /** called once per turn with the assistant's full reply (never per chunk:
+   *  that would be one write per token) */
+  persistAssistant(agentId: string, text: string): void;
   log?: (line: string) => void;
 }
 
@@ -45,8 +49,9 @@ export function defaultPermissionMode(provider: AgentRecord['provider']): TurnCo
 export class EngineService {
   private daemon: SidecarDaemon | null = null;
   private status: EngineStatus = { state: 'stopped' };
-  /** turnId → agentId, so a UI event can be attributed without a lookup */
-  private readonly turns = new Map<string, string>();
+  /** turnId → { agentId, streamed text } — the attribution the UI events
+   *  lack, and the buffer that makes one write per turn possible */
+  private readonly turns = new Map<string, { agentId: string; text: string }>();
 
   constructor(private readonly deps: EngineDeps) {}
 
@@ -78,7 +83,8 @@ export class EngineService {
       onEvent: (event) => this.route(event),
       onExit: (code, tail) => {
         this.daemon = null;
-        for (const [turnId] of this.turns) {
+        for (const [turnId, turn] of this.turns) {
+          if (turn.text.trim()) this.deps.persistAssistant(turn.agentId, turn.text);
           this.deps.emit({ id: turnId, type: 'error', error: `engine exited (code ${code})`, trace: tail.slice(-800) });
         }
         this.turns.clear();
@@ -104,8 +110,18 @@ export class EngineService {
   }
 
   private route(event: SidecarEvent): void {
-    if ('id' in event && (event.type === 'done' || event.type === 'error' || event.type === 'cancelled')) {
-      this.turns.delete(event.id);
+    if ('id' in event) {
+      const turn = this.turns.get(event.id);
+      if (turn) {
+        if (event.type === 'chunk') {
+          turn.text += event.text;
+        } else if (event.type === 'done' || event.type === 'error' || event.type === 'cancelled') {
+          this.turns.delete(event.id);
+          // a cancelled or failed turn still keeps whatever was said before
+          // it stopped — losing it would make the transcript lie
+          if (turn.text.trim()) this.deps.persistAssistant(turn.agentId, turn.text);
+        }
+      }
     }
     this.deps.emit(event);
   }
@@ -128,9 +144,20 @@ export class EngineService {
     if (!daemon) throw new Error(this.status.error ?? 'engine unavailable');
 
     const turnId = randomUUID();
-    this.turns.set(turnId, agent.id);
+    this.turns.set(turnId, { agentId: agent.id, text: '' });
     daemon.send({ id: turnId, op: 'turn', session: agent.id, text, config: this.turnConfig(agent) });
     return { turnId };
+  }
+
+  /** Apply a config change to a live session at its next turn boundary. */
+  refresh(agent: AgentRecord): void {
+    if (!this.daemon?.running) return;
+    this.daemon.send({
+      id: this.daemon.nextId('rf'),
+      op: 'refresh',
+      session: agent.id,
+      config: this.turnConfig(agent),
+    });
   }
 
   cancel(turnId: string): void {
