@@ -113,11 +113,26 @@ export const TOOL_GROUPS: ToolGroup[] = [
       { name: 'ReadUserFile', label: '외부 파일 읽기', risky: true },
     ],
   },
+  {
+    id: 'browser',
+    label: '브라우저',
+    hint: '앱이 띄운 실제 브라우저 창을 에이전트가 조작합니다 — 보고 있을 수 있습니다',
+    tools: [
+      { name: 'BrowserOpen', label: '열기' },
+      { name: 'BrowserSnapshot', label: '요소 보기' },
+      { name: 'BrowserAct', label: '클릭·입력', risky: true },
+      { name: 'BrowserRead', label: '본문 읽기' },
+      { name: 'BrowserBack', label: '뒤로' },
+      { name: 'BrowserClose', label: '닫기' },
+    ],
+  },
 ];
 
 /** Names the desktop side implements — they are not engine built-ins. */
 export const HOST_TOOL_NAMES = new Set(
-  TOOL_GROUPS.find((g) => g.id === 'desktop')?.tools.map((t) => t.name) ?? [],
+  TOOL_GROUPS.filter((g) => g.id === 'desktop' || g.id === 'browser').flatMap((g) =>
+    g.tools.map((t) => t.name),
+  ),
 );
 
 export const ALL_TOOL_NAMES = TOOL_GROUPS.flatMap((g) => g.tools.map((t) => t.name));

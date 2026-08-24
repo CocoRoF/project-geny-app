@@ -12,6 +12,7 @@ import {
 import { agentDir as resolveAgentDir, layout, resolveDataRoot } from './data-root';
 import { openStore } from './db';
 import { EngineService } from './engine-service';
+import { BrowserHost } from './browser-tools';
 import { buildHostTools } from './host-tools';
 import { DEFAULT_SHORTCUT, QuickChat, quickChatPaths } from './quick-chat';
 import { forwardEvent, registerIpc } from './ipc';
@@ -24,6 +25,7 @@ let mainWindow: BrowserWindow | null = null;
 let engine: EngineService | null = null;
 let quickChat: QuickChat | null = null;
 let tray: Tray | null = null;
+let browserHostRef: BrowserHost | null = null;
 
 /** Every surface a sidecar event should reach. */
 const surfaces = (): Array<BrowserWindow | null> => [
@@ -85,7 +87,20 @@ async function boot(): Promise<void> {
 
   // The app's own capabilities, offered to the agent as tools. This is the
   // only path by which anything Electron can do reaches the engine.
+  // one browser window per agent, shown so the user can see what the agent
+  // is doing rather than discovering it afterwards
+  const browserHost = new BrowserHost({ show: true });
+  browserHostRef = browserHost;
+
   const hostTools = buildHostTools({
+    browser: {
+      navigate: (id, url) => browserHost.navigate(id, url),
+      snapshot: (id) => browserHost.snapshot(id),
+      act: (id, input) => browserHost.act(id, input),
+      extract: (id) => browserHost.extract(id),
+      back: (id) => browserHost.back(id),
+      close: (id) => browserHost.close(id),
+    },
     captureScreen: async () => {
       const { width, height } = screen.getPrimaryDisplay().size;
       const sources = await desktopCapturer.getSources({
@@ -157,6 +172,19 @@ async function boot(): Promise<void> {
     },
   });
 
+  // Test seam: run a host tool exactly as the engine's host_tool_call does,
+  // without needing a model in the loop. Only reachable from the main
+  // process (Playwright's app.evaluate), never from a renderer or a page.
+  (globalThis as unknown as Record<string, unknown>).__genyHostTool = async (
+    name: string,
+    args: Record<string, unknown>,
+    forAgent: string,
+  ): Promise<unknown> => {
+    const tool = hostTools.find((t) => t.spec.name === name);
+    if (!tool) throw new Error(`unknown host tool ${name}`);
+    return tool.handle(args, { agentId: forAgent, agentDir: resolveAgentDir(paths, forAgent) });
+  };
+
   registerIpc({
     ipcMain,
     showQuickChat: () => quickChat?.show(),
@@ -219,6 +247,7 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow();
 });
 app.on('before-quit', () => {
+  browserHostRef?.destroyAll();
   quickChat?.destroy();
   tray?.destroy();
   void engine?.stop();

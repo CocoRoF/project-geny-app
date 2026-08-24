@@ -26,7 +26,20 @@ export type HostToolHandler = (
   ctx: HostToolContext,
 ) => Promise<unknown>;
 
+export interface BrowserDeps {
+  navigate(agentId: string, url: string): Promise<{ url: string; title: string }>;
+  snapshot(agentId: string): Promise<{ url: string; title: string; nodes: unknown[] }>;
+  act(
+    agentId: string,
+    input: { ref: string; action: 'click' | 'type' | 'select'; text?: string },
+  ): Promise<{ ok: true; url: string }>;
+  extract(agentId: string): Promise<{ url: string; title: string; text: string }>;
+  back(agentId: string): Promise<{ url: string }>;
+  close(agentId: string): { closed: boolean };
+}
+
 export interface HostToolDeps {
+  browser: BrowserDeps;
   captureScreen(): Promise<{ mime: string; base64: string; width: number; height: number }>;
   notify(input: { title: string; body: string }): void;
   clipboardRead(): string;
@@ -152,6 +165,73 @@ export function buildHostTools(deps: HostToolDeps): HostTool[] {
         await deps.openPath(resolved);
         return { opened: resolved };
       },
+    },
+    {
+      spec: {
+        name: 'BrowserOpen',
+        description:
+          'Open a URL in the agent browser — a real browser window the user can watch. Returns ' +
+          'the final URL and title after any redirect.',
+        schema: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] },
+      },
+      handle: async (args, ctx) => deps.browser.navigate(ctx.agentId, str(args.url)),
+    },
+    {
+      spec: {
+        name: 'BrowserSnapshot',
+        description:
+          'List the interactive elements on the current page, each with a short ref (e1, e2 …). ' +
+          'Take a snapshot before acting: BrowserAct only accepts refs from the latest one.',
+        schema: { type: 'object', properties: {} },
+      },
+      handle: async (_args, ctx) => deps.browser.snapshot(ctx.agentId),
+    },
+    {
+      spec: {
+        name: 'BrowserAct',
+        description:
+          "Click or type into an element from the last snapshot. `action:'click'` presses it, " +
+          "`action:'type'` replaces its value with `text`.",
+        schema: {
+          type: 'object',
+          properties: {
+            ref: { type: 'string', description: 'a ref from BrowserSnapshot, e.g. e3' },
+            action: { type: 'string', enum: ['click', 'type', 'select'] },
+            text: { type: 'string' },
+          },
+          required: ['ref', 'action'],
+        },
+      },
+      handle: async (args, ctx) =>
+        deps.browser.act(ctx.agentId, {
+          ref: str(args.ref),
+          action: (str(args.action, 'click') as 'click' | 'type' | 'select'),
+          text: str(args.text),
+        }),
+    },
+    {
+      spec: {
+        name: 'BrowserRead',
+        description: 'Read the current page as plain text — the readable content, not the markup.',
+        schema: { type: 'object', properties: {} },
+      },
+      handle: async (_args, ctx) => deps.browser.extract(ctx.agentId),
+    },
+    {
+      spec: {
+        name: 'BrowserBack',
+        description: 'Go back one page in the agent browser.',
+        schema: { type: 'object', properties: {} },
+      },
+      handle: async (_args, ctx) => deps.browser.back(ctx.agentId),
+    },
+    {
+      spec: {
+        name: 'BrowserClose',
+        description: 'Close the agent browser window when the task is done.',
+        schema: { type: 'object', properties: {} },
+      },
+      handle: async (_args, ctx) => deps.browser.close(ctx.agentId),
     },
     {
       spec: {

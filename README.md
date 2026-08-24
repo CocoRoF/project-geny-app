@@ -31,6 +31,7 @@
 | **백그라운드** | Task(파일 영속) · Cron(러너가 실제로 발화) — 예약이 있는 세션은 정리하지 않습니다 |
 | **위임** | 서브에이전트에 일을 맡기고 그 활동을 대화에 표시 (worker · researcher · summarizer · critic) |
 | **퀵챗** | `Ctrl/Cmd+Shift+G` — 다른 앱 위에 떠서 바로 묻고 답을 받습니다. 트레이 상주 |
+| **브라우저** | 에이전트가 실제 브라우저 창을 조작합니다 — 열기 · 요소 스냅샷 · 클릭/입력 · 본문 읽기 |
 
 제거된 것: GAPT(샌드박스) · 클라우드/동기화 · 오디오 자체 서빙 · 로그인/관리자.
 
@@ -82,6 +83,7 @@ npm run dist            # 파이썬 동봉 → 검증 → 인스톨러
 | `node test/host-tool-roundtrip.mjs` | 앱의 도구를 엔진이 호출하고 결과가 모델에 도달 (모델 필요) |
 | `node test/tool-selection.mjs` | 에이전트별 도구 on/off 가 엔진에 반영 (모델 필요) |
 | `node test/quick-chat.mjs` | 전역 단축키 등록 · 퀵챗이 본 창과 상태 공유 |
+| `node test/browser-tools.mjs` | 에이전트 브라우저가 실제로 입력·클릭·읽기 수행 |
 | `node scripts/verify-bundle.mjs` | 동봉 파이썬이 실제로 돌고 프로토콜을 말하는지 |
 
 Linux 개발 실행에서 `chrome-sandbox` SUID 가 없으면 SIGTRAP — `--no-sandbox` 로 우회합니다.
