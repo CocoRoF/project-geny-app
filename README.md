@@ -21,15 +21,15 @@
 | | |
 |---|---|
 | **에이전트** | 백엔드 3종, 에이전트별 모델 · 권한 · 시스템 프롬프트 |
-| **도구** | 내장 36종 (Read · Write · Edit · Bash · Glob · Grep · WebSearch …) |
+| **도구** | 31종 — 파일 · 셸 · 웹 · 백그라운드 · 예약 · 위임 · MCP, 그리고 **이 앱만 하는 것**(화면 캡처 · 알림 · 클립보드). 에이전트별 on/off |
 | **격리** | 에이전트마다 자기 워크스페이스. 도구는 그 밖으로 나갈 수 없습니다 |
 | **권한** | 신중 / 표준 / 신뢰 — 위험한 작업은 앱에서 승인 |
 | **대화 영속** | 앱을 껐다 켜도 대화와 **엔진 컨텍스트**가 이어집니다 |
 | **MCP** | 서버 등록 → 에이전트별 on/off. *실제로 연결됐는지* 엔진에 물어 보여줍니다 |
 | **스킬 · 명령어** | `<데이터>/skills`, `<데이터>/commands` 에 넣으면 자동 인식 |
 | **파일** | workspace · artifacts · memory 탐색, 텍스트/이미지 미리보기 |
-| **백그라운드** | Task · Cron — 예약된 작업이 있는 세션은 정리하지 않습니다 |
-| **위임** | 서브에이전트 활동을 대화에 표시 |
+| **백그라운드** | Task(파일 영속) · Cron(러너가 실제로 발화) — 예약이 있는 세션은 정리하지 않습니다 |
+| **위임** | 서브에이전트에 일을 맡기고 그 활동을 대화에 표시 (worker · researcher · summarizer · critic) |
 
 제거된 것: GAPT(샌드박스) · 클라우드/동기화 · 오디오 자체 서빙 · 로그인/관리자.
 
@@ -77,6 +77,9 @@ npm run dist            # 파이썬 동봉 → 검증 → 인스톨러
 | `node test/app-launch.mjs` | 앱 실행 · preload 전면 · 온보딩 · 엔진 · 에이전트 · 파일 격리 · MCP |
 | `node test/m2-persistence.mjs` | 앱을 두 번 띄워 대화·엔진 컨텍스트 복원 (모델 필요) |
 | `node test/m6-mcp.mjs` | MCP 서버가 연결돼 도구가 에이전트에 도달 (모델 필요) |
+| `node test/capability-probe.mjs` | 엔진이 **실제로 로드한** 도구 목록 (모델 필요) |
+| `node test/host-tool-roundtrip.mjs` | 앱의 도구를 엔진이 호출하고 결과가 모델에 도달 (모델 필요) |
+| `node test/tool-selection.mjs` | 에이전트별 도구 on/off 가 엔진에 반영 (모델 필요) |
 | `node scripts/verify-bundle.mjs` | 동봉 파이썬이 실제로 돌고 프로토콜을 말하는지 |
 
 Linux 개발 실행에서 `chrome-sandbox` SUID 가 없으면 SIGTRAP — `--no-sandbox` 로 우회합니다.

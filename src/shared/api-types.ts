@@ -12,6 +12,8 @@ export interface AgentRecord {
   model?: string;
   posture: AgentPosture;
   systemPrompt?: string;
+  /** built-in tools this agent may use; empty/undefined = the app default */
+  tools?: string[];
   createdAt: number;
   /** absolute path — <data-root>/agents/<id> */
   dir: string;
@@ -106,7 +108,10 @@ export interface GenyApi {
       model?: string;
       posture?: AgentPosture;
     }): Promise<AgentRecord>;
-    update(id: string, patch: Partial<Pick<AgentRecord, 'name' | 'model' | 'posture' | 'systemPrompt'>>): Promise<AgentRecord>;
+    update(
+      id: string,
+      patch: Partial<Pick<AgentRecord, 'name' | 'model' | 'posture' | 'systemPrompt' | 'tools'>>,
+    ): Promise<AgentRecord>;
     remove(id: string): Promise<void>;
   };
   secrets: {

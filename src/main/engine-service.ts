@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 import type { AgentRecord, EngineStatus } from '@shared/api-types';
 import { defaultModel, TURN_TIMEOUT_SECONDS } from '@shared/models';
 import type { SidecarEvent, TurnConfig } from '@shared/sidecar-protocol';
+import { HOST_TOOL_NAMES } from '@shared/tool-catalogue';
 import type { HostTool } from './host-tools';
 import { hostToolSpecs } from './host-tools';
 import { locateRuntime, type LocateInput } from './runtime-locate';
@@ -215,7 +216,15 @@ export class EngineService {
       mcpServers: this.deps.mcpFor(agent.id),
       skillDirs: this.deps.skillDirs(agent.id),
       commandDirs: this.deps.commandDirs(agent.id),
-      hostTools: hostToolSpecs(this.deps.hostTools ?? []),
+      // Host tools obey the same per-agent selection as engine tools: an
+      // agent the user did not trust with the clipboard must not get it just
+      // because the app can do it.
+      hostTools: hostToolSpecs(this.deps.hostTools ?? []).filter(
+        (spec) => agent.tools === undefined || agent.tools.includes(spec.name),
+      ),
+      // undefined = the engine's default set; [] = the user turned them all
+      // off, which must be honoured rather than read as "unset"
+      builtInTools: agent.tools?.filter((name) => !HOST_TOOL_NAMES.has(name)),
     };
   }
 

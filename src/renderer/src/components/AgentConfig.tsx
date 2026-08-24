@@ -4,6 +4,7 @@ import type { AgentRecord, CliInfo } from '@shared/api-types';
 import { MODELS } from '@shared/models';
 import type { AgentPosture } from '@shared/sidecar-protocol';
 import { POSTURES } from '@shared/sidecar-protocol';
+import { ALL_TOOL_NAMES, DEFAULT_ENABLED, HOST_TOOL_NAMES, TOOL_GROUPS } from '@shared/tool-catalogue';
 import { useApp } from '../store/app-store';
 
 const POSTURE_TEXT: Record<AgentPosture, string> = {
@@ -109,6 +110,11 @@ export function AgentConfig({ agent }: { agent: AgentRecord }): JSX.Element {
       </section>
 
       <section>
+        <h2 className="mb-2 text-[10px] uppercase tracking-widest text-dim">도구</h2>
+        <ToolPicker agent={agent} onApply={apply} />
+      </section>
+
+      <section>
         <h2 className="mb-2 text-[10px] uppercase tracking-widest text-dim">폴더</h2>
         <div className="flex flex-wrap gap-2">
           {(['workspace', 'memory', 'artifacts', 'sessions'] as const).map((sub) => (
@@ -124,6 +130,89 @@ export function AgentConfig({ agent }: { agent: AgentRecord }): JSX.Element {
         </div>
         <p className="mt-1 break-all text-[11px] text-dim">{agent.dir}</p>
       </section>
+    </div>
+  );
+}
+
+
+/**
+ * Which tools this agent may use.
+ *
+ * `undefined` means "the app default", which is deliberately not the same as
+ * "all": a new capability added in an update should not silently switch
+ * itself on for an agent the user already tuned. Turning everything off is a
+ * real choice and is stored as an empty list.
+ */
+function ToolPicker({
+  agent,
+  onApply,
+}: {
+  agent: AgentRecord;
+  onApply: (patch: { tools: string[] }) => Promise<void>;
+}): JSX.Element {
+  const selected = agent.tools ?? DEFAULT_ENABLED;
+  const isOn = (name: string): boolean => selected.includes(name);
+
+  const toggle = (name: string): void => {
+    const next = isOn(name) ? selected.filter((n) => n !== name) : [...selected, name];
+    void onApply({ tools: next });
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2 text-[11px] text-dim">
+        <span>
+          {selected.length} / {ALL_TOOL_NAMES.length} 사용
+        </span>
+        <button
+          type="button"
+          className="rounded border border-line px-1.5 py-0.5 hover:text-fg"
+          onClick={() => void onApply({ tools: [...ALL_TOOL_NAMES] })}
+        >
+          전부 켜기
+        </button>
+        <button
+          type="button"
+          className="rounded border border-line px-1.5 py-0.5 hover:text-fg"
+          onClick={() => void onApply({ tools: [...DEFAULT_ENABLED] })}
+        >
+          기본값
+        </button>
+        <button
+          type="button"
+          className="rounded border border-line px-1.5 py-0.5 hover:text-fg"
+          onClick={() => void onApply({ tools: [] })}
+        >
+          전부 끄기
+        </button>
+      </div>
+
+      {TOOL_GROUPS.map((group) => (
+        <div key={group.id} className="rounded border border-line p-2">
+          <div className="mb-1 flex items-baseline gap-2">
+            <span className="text-[11px] font-medium">{group.label}</span>
+            <span className="text-[10px] text-dim">{group.hint}</span>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {group.tools.map((tool) => (
+              <button
+                key={tool.name}
+                type="button"
+                onClick={() => toggle(tool.name)}
+                title={HOST_TOOL_NAMES.has(tool.name) ? '이 앱이 직접 수행합니다' : tool.name}
+                className={`rounded border px-2 py-0.5 text-[11px] ${
+                  isOn(tool.name)
+                    ? 'border-accent/60 bg-accent/15 text-accent'
+                    : 'border-line text-dim hover:text-fg'
+                }`}
+              >
+                {tool.label}
+                {tool.risky && <span className="ml-1 opacity-60">⚠</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

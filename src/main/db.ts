@@ -15,7 +15,9 @@ import { DatabaseSync } from 'node:sqlite';
 import type { AgentRecord, McpServerRecord, StoredMessage } from '@shared/api-types';
 import type { AgentPosture } from '@shared/sidecar-protocol';
 
-export type AgentPatch = Partial<Pick<AgentRecord, 'name' | 'model' | 'posture' | 'systemPrompt'>>;
+export type AgentPatch = Partial<
+  Pick<AgentRecord, 'name' | 'model' | 'posture' | 'systemPrompt' | 'tools'>
+>;
 
 export interface Store {
   raw: DatabaseSync;
@@ -85,10 +87,26 @@ const MIGRATIONS: string[] = [
      server_id TEXT NOT NULL REFERENCES mcp_servers(id) ON DELETE CASCADE,
      PRIMARY KEY (agent_id, server_id)
    );`,
+  // v4 — per-agent tool selection. NULL means "the app default", which is
+  // not the same as "none": an agent created before this column existed must
+  // keep every tool it had.
+  `ALTER TABLE agents ADD COLUMN tools TEXT;`,
 ];
 
 const nullable = (v: unknown): string | undefined =>
   v === null || v === undefined ? undefined : String(v);
+
+/** NULL → undefined (app default). A stored empty array means the user
+ *  deliberately turned everything off, so it must survive as []. */
+const parseTools = (raw: string | undefined): string[] | undefined => {
+  if (raw === undefined) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(String) : undefined;
+  } catch {
+    return undefined;
+  }
+};
 
 const toAgent = (r: Record<string, unknown>): AgentRecord => ({
   id: String(r.id),
@@ -96,6 +114,7 @@ const toAgent = (r: Record<string, unknown>): AgentRecord => ({
   provider: r.provider as AgentRecord['provider'],
   model: nullable(r.model),
   posture: (nullable(r.posture) ?? 'standard') as AgentPosture,
+  tools: parseTools(nullable(r.tools)),
   systemPrompt: nullable(r.system_prompt),
   dir: String(r.dir),
   createdAt: Number(r.created_at),
@@ -126,6 +145,7 @@ const AGENT_COLUMNS: Record<keyof AgentPatch, string> = {
   model: 'model',
   posture: 'posture',
   systemPrompt: 'system_prompt',
+  tools: 'tools',
 };
 
 export function openStore(file: string): Store {
@@ -203,7 +223,9 @@ export function openStore(file: string): Store {
           const value = patch[key as keyof AgentPatch];
           if (value === undefined) continue;
           sets.push(`${column} = ?`);
-          values.push(value === null ? null : String(value));
+          values.push(
+            value === null ? null : Array.isArray(value) ? JSON.stringify(value) : String(value),
+          );
         }
         if (sets.length === 0) return;
         db.prepare(`UPDATE agents SET ${sets.join(', ')} WHERE id = ?`).run(...values, id);

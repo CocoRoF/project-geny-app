@@ -330,10 +330,45 @@ class AgentSession:
             self._pipeline = await self._build()
         return self._pipeline
 
+    #: config fields baked into the manifest at build time — changing any of
+    #: them cannot be applied by refresh_runtime, which only swaps the tool
+    #: context. A settings screen whose changes the runtime ignores is worse
+    #: than no screen (observed: turning Bash off left all 31 tools live), so
+    #: these force a rebuild on the next turn instead.
+    _MANIFEST_FIELDS = (
+        "provider",
+        "model",
+        "preset",
+        "built_in_tools",
+        "mcp_servers",
+        "host_tools",
+        "system_prompt",
+    )
+
+    def _manifest_signature(self, config: SessionConfig) -> tuple[Any, ...]:
+        def freeze(value: Any) -> Any:
+            if isinstance(value, list):
+                return tuple(freeze(v) for v in value)
+            if isinstance(value, dict):
+                return tuple(sorted((k, freeze(v)) for k, v in value.items()))
+            return value
+
+        return tuple(freeze(getattr(config, name, None)) for name in self._MANIFEST_FIELDS)
+
     async def refresh(self, config: SessionConfig) -> None:
-        """Apply config changes at a turn boundary (keys, workspace, mode)."""
+        """Apply config changes at a turn boundary.
+
+        Runtime-only changes (keys, workspace, permission mode) are swapped in
+        place; anything the manifest captured forces a rebuild, which the next
+        turn performs lazily. The conversation is untouched either way — state
+        lives on the session, not the pipeline.
+        """
+        rebuild = self._manifest_signature(config) != self._manifest_signature(self.config)
         self.config = config
         if self._pipeline is None:
+            return
+        if rebuild:
+            await self.aclose()
             return
         workspace, _, _ = self._ensure_dirs()
         try:
