@@ -309,6 +309,9 @@ class Daemon:
             target = str(cmd.get("target") or "")
             self._cancelled.add(target)
             self.host.cancel_prompts_for_turn(target)
+            # a dialog the user can no longer see must not keep the engine
+            # waiting forever
+            self.host.cancel_approvals_for_turn()
             task = self._turns.get(target)
             if task is not None and not task.done():
                 task.cancel()
@@ -430,6 +433,15 @@ class Daemon:
         emit({"id": cid, "type": "meta", "data": {"kind": "capabilities", **report}})
 
     async def _hitl(self, cmd: dict[str, Any]) -> None:
+        # an approval the app raised through AppRequester resolves here; only
+        # fall through to pipeline.resume for stage-15 tokens
+        token = str(cmd.get("token") or "")
+        decision = str(cmd.get("decision") or "reject")
+        if self.host.resolve_approval(token, decision):
+            return
+        await self._hitl_resume(cmd)
+
+    async def _hitl_resume(self, cmd: dict[str, Any]) -> None:
         token = str(cmd.get("token") or "")
         decision = str(cmd.get("decision") or "reject")
         for session in self.sessions.values():

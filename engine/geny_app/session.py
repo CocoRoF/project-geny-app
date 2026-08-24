@@ -135,6 +135,12 @@ class AgentSession:
         return workspace, memory, sessions
 
     # ── build ──────────────────────────────────────────────────────
+    @property
+    def permission_rules(self) -> list[Any]:
+        """The posture's rules — exposed so diagnostics and tests can drive
+        the same policy the turn will."""
+        return policy.rules_for(self.config.posture)
+
     def _tool_context(self, workspace: Path) -> ToolContext:
         jail = self.config.allowed_paths or [str(workspace)]
         return ToolContext(
@@ -221,13 +227,29 @@ class AgentSession:
         # injects has to go in this one call — a later refresh_runtime for the
         # hook runner looked like it worked and left hooks unattached.
         hook_runner = self._build_hook_runner()
+        # Stage 15 ships requester 'null' and the tool router reads
+        # context.hitl_requester — without both, an ASK rule has nobody to
+        # ask and the engine safe-denies, so "신중" refuses instead of asking.
+        requester = None
+        if self._host is not None:
+            try:
+                from .host import AppRequester
+
+                requester = AppRequester(self._host)
+            except Exception:
+                requester = None
         # keep it: the pipeline does not expose one, and both diagnostics and
         # tests need to know whether gates are actually active
         self.hook_runner = hook_runner
         tool_context = self._tool_context(workspace)
         if hook_runner is not None:
             tool_context.hook_runner = hook_runner
+        if requester is not None:
+            # not a constructor field — the router reads it off the context
+            tool_context.hitl_requester = requester
         pipeline.attach_runtime(tool_context=tool_context, hook_runner=hook_runner)
+        if requester is not None:
+            self._install_requester(pipeline, requester)
         self._register_host_tools(pipeline)
         return pipeline
 
@@ -267,6 +289,25 @@ class AgentSession:
                 "message": f"hooks 파일을 읽지 못했습니다 ({path.name}): {exc}",
             })
             return None
+
+    def _install_requester(self, pipeline: Pipeline, requester: Any) -> None:
+        """Replace stage 15's null requester so approvals raised there reach
+        the app too (the tool router is only one of the two paths)."""
+        try:
+            stage = pipeline.get_stage("hitl")
+            if stage is None:
+                return
+            for attr in ("requester", "_requester"):
+                if hasattr(stage, attr):
+                    setattr(stage, attr, requester)
+                    return
+            slot = getattr(stage, "slots", None)
+            if slot is not None and hasattr(slot, "set"):
+                slot.set("requester", requester)
+        except Exception:
+            # a stage shape we do not recognise still leaves the tool-router
+            # path working, which covers the permission case
+            pass
 
     def _register_host_tools(self, pipeline: Pipeline) -> None:
         """Expose the app's own capabilities as ordinary agent tools.

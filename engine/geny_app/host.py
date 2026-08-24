@@ -11,8 +11,42 @@ import uuid
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
+import uuid
+
 from .host_tools import HostBridge
-from .protocol import emit
+from .protocol import emit, shrink as _shrinkable
+
+
+class AppRequester:
+    """Stage-15 Requester that asks the APP.
+
+    Without one of these an ASK permission rule has nobody to ask, and the
+    engine's documented fallback is a safe deny — so a user who chose the
+    "신중" posture gets refusals for calls they were never shown. The manifest
+    ships stage 15 with requester 'null', so the host must supply this.
+
+    Mirrors question_handler: emit, await, resolve by token.
+    """
+
+    def __init__(self, host: "HostServices") -> None:
+        self._host = host
+
+    async def request(self, request: Any, state: Any = None) -> Any:
+        from geny_executor.stages.s15_hitl.types import HITLDecision
+
+        token = str(getattr(request, "token", "") or uuid.uuid4().hex[:12])
+        payload = getattr(request, "payload", None)
+        decision = await self._host.ask_approval(
+            token=token,
+            reason=str(getattr(request, "reason", "") or "승인이 필요합니다"),
+            severity=str(getattr(request, "severity", "") or "normal"),
+            payload=payload,
+        )
+        return {
+            "approve": HITLDecision.APPROVE,
+            "reject": HITLDecision.REJECT,
+            "cancel": HITLDecision.CANCEL,
+        }.get(decision, HITLDecision.REJECT)
 
 
 class QuestionCancelled(Exception):
@@ -31,6 +65,8 @@ class HostServices:
         #: wiring problems worth telling the user about, rather than hiding
         self._wiring_errors: list[str] = []
         self._prompts: dict[str, asyncio.Future[Optional[str]]] = {}
+        #: pending approvals, keyed by the engine's token
+        self._approvals: dict[str, asyncio.Future[str]] = {}
         self._turn_of_prompt: dict[str, str] = {}
         #: long-lived per-session objects (task runner, cron store) — they
         #: must outlive a single turn or scheduled work restarts every time
@@ -82,6 +118,41 @@ class HostServices:
             return value
 
         return ask
+
+    # ── approvals (permission ASK + stage 15) ──────────────────────
+    async def ask_approval(
+        self, *, token: str, reason: str, severity: str, payload: Any
+    ) -> str:
+        """Ask the app and wait. Returns 'approve' | 'reject' | 'cancel'."""
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[str] = loop.create_future()
+        self._approvals[token] = fut
+        emit({
+            "id": self._current_turn,
+            "type": "hitl_request",
+            "token": token,
+            "kind": severity,
+            "detail": {"reason": reason, "payload": _shrinkable(payload)},
+        })
+        try:
+            return await fut
+        finally:
+            self._approvals.pop(token, None)
+
+    def resolve_approval(self, token: str, decision: str) -> bool:
+        fut = self._approvals.get(token)
+        if fut is None or fut.done():
+            return False
+        fut.set_result(decision)
+        return True
+
+    def cancel_approvals_for_turn(self) -> None:
+        """A cancelled turn must not leave the engine waiting on a dialog
+        the user can no longer see."""
+        for token, fut in list(self._approvals.items()):
+            if not fut.done():
+                fut.set_result("cancel")
+            self._approvals.pop(token, None)
 
     def reply_prompt(self, prompt_id: str, value: Optional[str]) -> bool:
         fut = self._prompts.get(prompt_id)
