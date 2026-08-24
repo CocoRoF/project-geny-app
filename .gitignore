@@ -2,11 +2,10 @@ node_modules/
 out/
 dist/
 release/
+scratch/
 engine/.venv/
 engine/**/__pycache__/
-engine/**/*.egg-info/
 resources/python/
-geny-data/
+resources/python-sidecar/
 *.log
 .DS_Store
-node_modules/.tmp/
