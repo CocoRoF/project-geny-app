@@ -304,7 +304,22 @@ async function boot(): Promise<void> {
     store.settings.set('quickChat.shortcutActive', shortcut);
   }
 
-  tray = new Tray(nativeImage.createEmpty());
+  // An empty image is an INVISIBLE tray icon — and on Linux the tray is the
+  // only way to reach the avatar toggle and the quick-chat entry, so the app
+  // would look like it simply had no tray. `@2x` resolves by filename.
+  const trayIcon = app.isPackaged
+    ? join(process.resourcesPath, 'tray.png')
+    : join(repoRoot, 'build', 'tray.png');
+  const trayImage = nativeImage.createFromPath(trayIcon);
+  tray = new Tray(trayImage.isEmpty() ? nativeImage.createEmpty() : trayImage);
+  // Test seam: Electron 43's Tray has no statics, so there is no way to ask
+  // it from outside whether its icon is real. Reachable only from the main
+  // process (Playwright's app.evaluate), never from a renderer.
+  (globalThis as unknown as Record<string, unknown>).__genyTray = {
+    path: trayIcon,
+    empty: trayImage.isEmpty(),
+    size: trayImage.isEmpty() ? null : trayImage.getSize(),
+  };
   tray.setToolTip('Geny');
   tray.setContextMenu(
     Menu.buildFromTemplate([

@@ -15,6 +15,13 @@ files:
 extraResources:
   - from: resources/python
     to: python
+  # The tray needs its own art: `build/icon.png` is the installed app icon
+  # and turns to mud at 16px, so the tray gets the mark alone. Both sizes sit
+  # side by side because Electron resolves `@2x` by filename.
+  - from: build/tray.png
+    to: tray.png
+  - from: build/tray@2x.png
+    to: tray@2x.png
   - from: resources/RUNTIME_VERSION
     to: RUNTIME_VERSION
 

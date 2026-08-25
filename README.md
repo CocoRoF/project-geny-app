@@ -109,6 +109,7 @@ npm run dist            # 파이썬 동봉 → 검증 → 인스톨러
 | `engine/.venv/bin/python test/permission_engine_test.py` | 승인 요청이 사용자에게 도달하고 승인/거부가 반영 |
 | `node scripts/verify-bundle.mjs` | 동봉 파이썬이 실제로 돌고 프로토콜을 말하는지 |
 | `node test/packaged-app.mjs <AppImage>` | **출시본**이 실제로 동작 — 동봉 엔진 · asar 안의 아바타 엔트리 · 물리 wasm · 설정 영속 |
+| `python3 scripts/make-icons.py` | 앱·트레이 아이콘 재생성 (코드가 정의, 바이너리는 산출물) |
 
 Linux 개발 실행에서 `chrome-sandbox` SUID 가 없으면 SIGTRAP — `--no-sandbox` 로 우회합니다.
 

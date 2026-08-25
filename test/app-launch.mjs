@@ -68,5 +68,15 @@ const capabilities = await win.evaluate((id) => window.geny.capabilities.inspect
 if (!Array.isArray(capabilities.tools)) die('capabilities.inspect returned nothing usable');
 console.log('✓ capabilities inspect reachable');
 
+
+// The tray is the only route to the avatar toggle and quick chat on Linux,
+// and an empty NativeImage makes it INVISIBLE rather than broken — exactly
+// the kind of failure that looks like "this app has no tray".
+const trayInfo = await app.evaluate(() => globalThis.__genyTray ?? null);
+if (!trayInfo || trayInfo.empty) {
+  die(`tray icon is missing or empty: ${JSON.stringify(trayInfo)}`);
+}
+console.log(`\u2713 tray icon is real (${trayInfo.size.width}x${trayInfo.size.height})`);
+
 await app.close();
 console.log('\napp launch gate: PASS');
