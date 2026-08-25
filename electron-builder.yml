@@ -1,6 +1,22 @@
 appId: dev.geny.app
-productName: Geny
+# NOT "Geny", even though that is what the app calls itself everywhere the
+# user can see it (window title, tray, and the Linux launcher entry below).
+# electron-builder derives the install directory from productName, so a .deb
+# with productName "Geny" claims /opt/Geny — which geny-connector already
+# owns, and dpkg refuses to let two packages own the same file:
+#   trying to overwrite '/opt/Geny/LICENSES.chromium.html', which is also in
+#   package geny-connector 0.22.1
+# Two separate applications must not share an install prefix.
+productName: Geny App
 copyright: Apache-2.0
+
+# One readable scheme for every installer: Geny_app_<os>_<version>.<ext>.
+# Set explicitly rather than left to the default, which mixes styles
+# (`Geny-0.2.0.AppImage`, `Geny-Setup-0.2.0.exe`,
+# `project-geny-app_0.2.0_amd64.deb`) depending on the target.
+# `latest*.yml` keeps its name — electron-updater looks it up by that exact
+# filename — and each .blockmap follows its artifact automatically.
+artifactName: Geny_app_${os}_${version}.${ext}
 directories:
   output: release
   buildResources: build
@@ -32,6 +48,9 @@ compression: normal
 
 mac:
   category: public.app-category.developer-tools
+  # the only target that builds two architectures, so the only one whose
+  # filename has to carry the arch to stay unique
+  artifactName: Geny_app_macos_${arch}_${version}.${ext}
   target:
     - target: dmg
       arch: [arm64, x64]
@@ -41,6 +60,7 @@ mac:
   gatekeeperAssess: false
 
 win:
+  artifactName: Geny_app_windows_${version}.${ext}
   target:
     - target: nsis
       arch: [x64]
@@ -54,6 +74,7 @@ nsis:
   deleteAppDataOnUninstall: false
 
 linux:
+  artifactName: Geny_app_linux_${version}.${ext}
   target:
     - target: AppImage
       arch: [x64]

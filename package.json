@@ -1,6 +1,6 @@
 {
   "name": "project-geny-app",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Geny as a single-user desktop app — agents, tools, memory. No server.",
   "main": "./out/main/index.js",
   "author": {

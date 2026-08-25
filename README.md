@@ -50,12 +50,15 @@
 
 | OS | 파일 | 첫 실행 |
 |---|---|---|
-| **Windows** | `Geny-Setup-*.exe` | SmartScreen → **추가 정보 → 실행** (현재 무서명) |
-| **macOS** | `Geny-*.dmg` | Applications 로 드래그 → **우클릭 → 열기** (Gatekeeper, 무서명) |
-| **Linux** | `Geny-*.AppImage` | `chmod +x` 후 실행 · 또는 `.deb` (`sudo apt install ./project-geny-app_*.deb`) |
+| **Windows** | `Geny_app_windows_*.exe` | SmartScreen → **추가 정보 → 실행** (현재 무서명) |
+| **macOS** | `Geny_app_macos_arm64_*.dmg` · `Geny_app_macos_x64_*.dmg` | Applications 로 드래그 → **우클릭 → 열기** (Gatekeeper, 무서명) |
+| **Linux** | `Geny_app_linux_*.AppImage` | `chmod +x` 후 실행 · 또는 `sudo apt install ./Geny_app_linux_*.deb` |
 
 파이썬도 API 서버도 따로 설치할 필요가 없습니다 — 엔진이 설치 파일에 들어 있습니다.
 첫 실행에서 **Anthropic API 키**를 넣거나, `claude` CLI 가 이미 있으면 그대로 씁니다.
+
+설치 위치는 `/opt/Geny App` 입니다 — `geny-connector` 가 `/opt/Geny` 를 쓰고 있어서
+같은 디렉터리를 쓰면 dpkg 가 설치를 거부합니다. 두 앱은 나란히 설치됩니다.
 
 **Linux 참고** — Ubuntu 24.04 는 `kernel.apparmor_restrict_unprivileged_userns=1` 때문에
 Electron 앱의 샌드박스가 막히는 경우가 있습니다. `.deb` 는 AppArmor 프로파일을 함께 설치해
