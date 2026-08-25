@@ -21,7 +21,7 @@
 | | |
 |---|---|
 | **에이전트** | 백엔드 3종, 에이전트별 모델 · 권한 · 시스템 프롬프트 |
-| **도구** | 31종 — 파일 · 셸 · 웹 · 백그라운드 · 예약 · 위임 · MCP, 그리고 **이 앱만 하는 것**(화면 캡처 · 알림 · 클립보드). 에이전트별 on/off |
+| **도구** | 41종 — 엔진 25(파일 · 셸 · 웹 · 백그라운드 · 예약 · 위임 · MCP) + **이 앱만 하는 것 16**(화면 캡처 · 알림 · 클립보드 · 브라우저 · 지식 · 음성). 에이전트별 on/off |
 | **격리** | 에이전트마다 자기 워크스페이스. 도구는 그 밖으로 나갈 수 없습니다 |
 | **권한** | 신중 / 표준 / 신뢰 — 위험한 작업은 앱이 **묻고**, 거부하면 실행되지 않습니다 |
 | **대화 영속** | 앱을 껐다 켜도 대화와 **엔진 컨텍스트**가 이어집니다 |
@@ -52,10 +52,16 @@
 |---|---|---|
 | **Windows** | `Geny-Setup-*.exe` | SmartScreen → **추가 정보 → 실행** (현재 무서명) |
 | **macOS** | `Geny-*.dmg` | Applications 로 드래그 → **우클릭 → 열기** (Gatekeeper, 무서명) |
-| **Linux** | `Geny-*.AppImage` | `chmod +x` 후 실행 · 또는 `.deb` |
+| **Linux** | `Geny-*.AppImage` | `chmod +x` 후 실행 · 또는 `.deb` (`sudo apt install ./project-geny-app_*.deb`) |
 
 파이썬도 API 서버도 따로 설치할 필요가 없습니다 — 엔진이 설치 파일에 들어 있습니다.
 첫 실행에서 **Anthropic API 키**를 넣거나, `claude` CLI 가 이미 있으면 그대로 씁니다.
+
+**Linux 참고** — Ubuntu 24.04 는 `kernel.apparmor_restrict_unprivileged_userns=1` 때문에
+Electron 앱의 샌드박스가 막히는 경우가 있습니다. `.deb` 는 AppArmor 프로파일을 함께 설치해
+이를 처리하고, AppImage 는 24.04.4 에서 그대로 실행되는 것을 확인했습니다
+(`--no-sandbox` 불필요). 자동 업데이트는 AppImage 만 지원합니다 — `.deb` 로 설치했다면
+새 `.deb` 를 받아 설치하세요(앱이 그렇게 안내합니다).
 
 ## 구조
 
@@ -102,6 +108,7 @@ npm run dist            # 파이썬 동봉 → 검증 → 인스톨러
 | `node test/voice.mjs` | 스텁 서비스에 실제로 보낸 요청 검증 — omnivoice clone 필드 · whisper multipart · 로딩중 판별 |
 | `engine/.venv/bin/python test/permission_engine_test.py` | 승인 요청이 사용자에게 도달하고 승인/거부가 반영 |
 | `node scripts/verify-bundle.mjs` | 동봉 파이썬이 실제로 돌고 프로토콜을 말하는지 |
+| `node test/packaged-app.mjs <AppImage>` | **출시본**이 실제로 동작 — 동봉 엔진 · asar 안의 아바타 엔트리 · 물리 wasm · 설정 영속 |
 
 Linux 개발 실행에서 `chrome-sandbox` SUID 가 없으면 SIGTRAP — `--no-sandbox` 로 우회합니다.
 

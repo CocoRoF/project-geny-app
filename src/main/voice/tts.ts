@@ -38,22 +38,22 @@ interface OmniVoiceProfile {
   ref_audios?: Array<{ emotion: string; file: string; prompt_text?: string | null }>;
 }
 
-/** Voice lists change only when the operator drops a folder in, so a short
- *  cache keeps the settings UI responsive without going stale in practice. */
-const voiceCache = new Map<string, { at: number; voices: VoiceOption[] }>();
+/**
+ * Voice profiles change only when the operator drops a folder into the
+ * service's `voices/`, so a short cache is safe — and necessary: every
+ * synthesis has to resolve the profile, so an uncached read would put a
+ * second round trip in front of every sentence spoken.
+ */
+const profileCache = new Map<string, { at: number; profiles: OmniVoiceProfile[] }>();
 const CACHE_MS = 30_000;
 
-export async function listVoices(config: TtsConfig, apiKey?: string): Promise<VoiceOption[]> {
-  if (config.provider === 'openai') {
-    // OpenAI has no voice-list endpoint; these are the documented names
-    return ['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer']
-      .map((id) => ({ id, name: id }));
-  }
-  if (config.provider === 'system') return [];
-  if (config.provider !== 'omnivoice') return [];
-
-  const cached = voiceCache.get(config.baseUrl);
-  if (cached && Date.now() - cached.at < CACHE_MS) return cached.voices;
+async function fetchProfiles(
+  config: TtsConfig,
+  apiKey: string | undefined,
+  force = false,
+): Promise<OmniVoiceProfile[]> {
+  const cached = profileCache.get(config.baseUrl);
+  if (!force && cached && Date.now() - cached.at < CACHE_MS) return cached.profiles;
 
   const response = await request(joinUrl(config.baseUrl, '/voices'), {
     method: 'GET',
@@ -61,14 +61,30 @@ export async function listVoices(config: TtsConfig, apiKey?: string): Promise<Vo
     timeoutSeconds: Math.min(config.timeoutSeconds ?? 15, 15),
   });
   const payload = (await response.json()) as { voices?: OmniVoiceProfile[] };
-  const voices: VoiceOption[] = (payload.voices ?? []).map((v) => ({
+  const profiles = payload.voices ?? [];
+  profileCache.set(config.baseUrl, { at: Date.now(), profiles });
+  return profiles;
+}
+
+export async function listVoices(
+  config: TtsConfig,
+  apiKey?: string,
+  /** the user pressing "목록 가져오기" means now, not up-to-30-seconds-ago */
+  force = false,
+): Promise<VoiceOption[]> {
+  if (config.provider === 'openai') {
+    // OpenAI has no voice-list endpoint; these are the documented names
+    return ['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer']
+      .map((id) => ({ id, name: id }));
+  }
+  if (config.provider !== 'omnivoice') return [];
+
+  return (await fetchProfiles(config, apiKey, force)).map((v) => ({
     id: v.id,
     name: v.name || v.id,
     language: v.language ?? undefined,
     emotions: (v.ref_audios ?? []).map((r) => r.emotion),
   }));
-  voiceCache.set(config.baseUrl, { at: Date.now(), voices });
-  return voices;
 }
 
 /**
@@ -83,13 +99,14 @@ async function resolveClone(
   apiKey?: string,
 ): Promise<{ ref_audio_path: string; ref_text?: string } | null> {
   if (!config.voice) return null;
-  const response = await request(joinUrl(config.baseUrl, '/voices'), {
-    method: 'GET',
-    headers: { ...authHeaders(apiKey), ...(config.headers ?? {}) },
-    timeoutSeconds: Math.min(config.timeoutSeconds ?? 15, 15),
-  });
-  const payload = (await response.json()) as { voices?: OmniVoiceProfile[] };
-  const profile = (payload.voices ?? []).find((v) => v.id === config.voice);
+  let profiles = await fetchProfiles(config, apiKey);
+  let profile = profiles.find((v) => v.id === config.voice);
+  if (!profile) {
+    // a profile added since the cache was filled is the likely story, so
+    // pay for one fresh read before declaring it missing
+    profiles = await fetchProfiles(config, apiKey, true);
+    profile = profiles.find((v) => v.id === config.voice);
+  }
   if (!profile) {
     throw new VoiceError(`'${config.voice}' 음성 프로필이 서버에 없습니다`);
   }

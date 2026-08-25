@@ -199,7 +199,7 @@ export interface GenyApi {
     /** actually probe both endpoints — not a guess from the config */
     health(): Promise<{ stt: VoiceHealth; tts: VoiceHealth }>;
     /** what the TTS service offers; omnivoice profiles carry emotions */
-    voices(): Promise<VoiceOption[]>;
+    voices(force?: boolean): Promise<VoiceOption[]>;
     /** send captured audio to STT and get text back */
     transcribe(input: { base64: string; mime: string }): Promise<{ text: string }>;
     /** synthesize and play; resolves once the audio has been handed to a surface */

@@ -82,9 +82,11 @@ export class VoiceService {
     return { stt: config.stt.provider !== 'none', tts: config.tts.provider !== 'none' };
   }
 
-  async voices(): Promise<VoiceOption[]> {
+  /** `force` is what the settings button means: the user just dropped a
+   *  profile onto the server and wants to see it now. */
+  async voices(force = false): Promise<VoiceOption[]> {
     const config = this.config();
-    return listVoices(config.tts, this.deps.secrets.get(SECRET_TTS));
+    return listVoices(config.tts, this.deps.secrets.get(SECRET_TTS), force);
   }
 
   async transcribe(input: TranscribeInput): Promise<string> {

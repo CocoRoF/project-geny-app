@@ -135,7 +135,7 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNELS.voiceSetKey, (_e, which: 'stt' | 'tts', key: string | null) =>
     deps.voice.setKey(which, key));
   ipcMain.handle(CHANNELS.voiceHealth, () => deps.voice.health());
-  ipcMain.handle(CHANNELS.voiceVoices, () => deps.voice.voices());
+  ipcMain.handle(CHANNELS.voiceVoices, (_e, force?: boolean) => deps.voice.voices(force === true));
   ipcMain.handle(CHANNELS.voiceTranscribe, async (_e, input: { base64: string; mime: string }) => ({
     text: await deps.voice.transcribe({
       audio: Buffer.from(input.base64, 'base64'),

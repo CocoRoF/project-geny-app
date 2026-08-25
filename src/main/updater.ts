@@ -51,6 +51,17 @@ export class Updater {
       });
       return this.state;
     }
+    // electron-updater can replace an AppImage in place, but it cannot
+    // update something dpkg owns — it would download and then fail with an
+    // unhelpful error. `APPIMAGE` is set by the AppImage runtime itself, so
+    // its absence on Linux means the app came from a package manager.
+    if (this.deps.platform === 'linux' && !process.env.APPIMAGE) {
+      this.set({
+        status: 'unsupported',
+        error: '패키지로 설치된 빌드는 자동 업데이트를 지원하지 않습니다 — 릴리스에서 새 .deb 를 받아 설치해 주세요',
+      });
+      return this.state;
+    }
 
     this.set({ status: 'checking' });
     try {

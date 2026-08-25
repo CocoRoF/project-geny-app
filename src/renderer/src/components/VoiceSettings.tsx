@@ -86,7 +86,7 @@ export function VoiceSettings(): JSX.Element {
   const loadVoices = (): void => {
     setVoicesError(null);
     void window.geny.voice
-      .voices()
+      .voices(true)
       .then(setVoices)
       .catch((err: unknown) => setVoicesError(err instanceof Error ? err.message : String(err)));
   };

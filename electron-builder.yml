@@ -53,13 +53,28 @@ linux:
     - target: deb
       arch: [x64]
   category: Development
-  # chrome-sandbox needs mode 4755 owned by root or Electron aborts with
-  # SIGTRAP on launch; the deb postinst sets it, AppImage runs unprivileged
-  # so electron-builder's own wrapper handles it.
+  # Without this the running window is not linked to the .desktop entry, so
+  # the dock shows a generic icon and does not group the app's windows.
+  syncDesktopName: true
+  synopsis: An agent app — no server, no Docker
+  # Sandbox on Linux, and why the default postinst is left alone:
+  # Chromium needs either an unprivileged user namespace or a chrome-sandbox
+  # at mode 4755 owned by root. Ubuntu 24.04 sets
+  # kernel.apparmor_restrict_unprivileged_userns=1, which denies the former
+  # to binaries with no AppArmor profile — so electron-builder ships one
+  # (resources/apparmor-profile, granting `userns`) and its postinst installs
+  # it. That is the right fix for the .deb and it is already in place.
+  # The AppImage needs neither: measured on 24.04.4 it launches unmodified,
+  # because Chromium takes the namespace path there. What DOES abort with
+  # SIGTRAP is running `release/linux-unpacked/` directly — Chromium finds a
+  # chrome-sandbox that is present but not SUID and refuses. That is a
+  # build-tree artefact, not something a user ever runs, and the E2E scripts
+  # pass --no-sandbox for exactly that reason.
   desktop:
     entry:
       Name: Geny
       Categories: Development;Utility;
+      StartupWMClass: Geny
 
 deb:
   depends:

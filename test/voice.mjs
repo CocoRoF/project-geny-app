@@ -142,6 +142,19 @@ check(
 check('the clip transcript is sent with it', tts.ref_text === '반가워', tts.ref_text);
 check('quality dial and format are honoured', tts.num_step === 24 && tts.audio_format === 'wav');
 
+// ── the profile lookup must not cost a round trip per sentence ─────────
+const before = seen.filter((r) => r.url === '/voices').length;
+await main.evaluate(async () => {
+  for (const line of ['한 문장', '두 문장', '세 문장']) await window.geny.voice.speak(line);
+});
+const added = seen.filter((r) => r.url === '/voices').length - before;
+check(
+  'repeated speech reuses the profile list instead of refetching it',
+  added === 0,
+  `${added} extra /voices calls for 3 utterances`,
+);
+check('...and all three were still synthesized', seen.filter((r) => r.url === '/tts').length >= 4);
+
 // ── audio actually reaches a window ────────────────────────────────────
 await main.evaluate(() => {
   window.__spoken = [];
