@@ -41,8 +41,20 @@ def icon(size: int, *, tile: bool = True) -> Image.Image:
     return img.resize((size, size), Image.LANCZOS)
 
 
+# Linux wants a real set, not one huge file: a panel asking for 24px should
+# get art drawn at 24px, not a 1024px image downscaled at paint time. Given a
+# single PNG electron-builder ships exactly that one size, so `linux.icon`
+# points at this directory instead.
+LINUX_SIZES = (16, 24, 32, 48, 64, 128, 256, 512, 1024)
+
 if __name__ == '__main__':
-    icon(1024).save('build/icon.png')            # electron-builder derives the rest
+    import os
+
+    icon(1024).save('build/icon.png')            # mac/win derive from this
+    os.makedirs('build/icons', exist_ok=True)
+    for size in LINUX_SIZES:
+        icon(size).save(f'build/icons/{size}x{size}.png')
     icon(32, tile=False).save('build/tray.png')  # Electron picks @2x by name
     icon(64, tile=False).save('build/tray@2x.png')
-    print('build/icon.png build/tray.png build/tray@2x.png')
+    print('build/icon.png, build/icons/{%s}, build/tray.png' %
+          ','.join(f'{s}x{s}' for s in LINUX_SIZES))

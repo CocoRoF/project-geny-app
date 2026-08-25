@@ -72,6 +72,16 @@ check('the engine came from the bundle, not the machine', s.runtime?.source !== 
 const paths = await win.evaluate(() => window.geny.app.paths());
 console.log('  data root:', paths.dataRoot, paths.portable ? '(portable)' : '');
 
+// ── the tray icon travels as an extraResource ──────────────────────────
+// dev reads build/tray.png; packaged reads process.resourcesPath — a
+// different path that only a packaged run can prove
+const tray = await app.evaluate(() => globalThis.__genyTray ?? null);
+check(
+  'the tray icon resolves from the packaged resources',
+  Boolean(tray) && tray.empty === false,
+  tray ? `${tray.size?.width}x${tray.size?.height} — ${tray.path}` : 'no tray',
+);
+
 // ── voice settings survive the packaged store ──────────────────────────
 await win.evaluate(async () => {
   const c = await window.geny.voice.config();

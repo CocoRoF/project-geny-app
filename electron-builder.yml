@@ -60,6 +60,9 @@ linux:
     - target: deb
       arch: [x64]
   category: Development
+  # A directory, not a single PNG: given one file electron-builder ships that
+  # one size, and a 24px panel then downscales a 1024px image at paint time.
+  icon: build/icons
   # Without this the running window is not linked to the .desktop entry, so
   # the dock shows a generic icon and does not group the app's windows.
   syncDesktopName: true
