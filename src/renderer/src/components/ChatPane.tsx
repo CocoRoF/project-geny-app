@@ -3,6 +3,7 @@ import { type ChatEntry, useApp } from '../store/app-store';
 import { ApiKeyGate } from './ApiKeyGate';
 import { PromptDialog } from './PromptDialog';
 import { ToolCardRow } from './ToolCardRow';
+import { MicButton } from '../voice/MicButton';
 import type { JSX } from 'react';
 
 const EMPTY: ChatEntry[] = [];
@@ -128,6 +129,10 @@ export function ChatPane(): JSX.Element {
               void send();
             }
           }}
+        />
+        <MicButton
+          disabled={Boolean(activeTurn)}
+          onText={(text) => setDraft((d) => (d ? `${d} ${text}` : text))}
         />
         {activeTurn ? (
           <button

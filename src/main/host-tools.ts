@@ -44,9 +44,18 @@ export interface KnowledgeDeps {
   stats(): { documents: number; chunks: number };
 }
 
+export interface VoiceDeps {
+  /** true when a provider is configured — the tool refuses clearly rather
+   *  than failing deep inside an HTTP client */
+  enabled(): { stt: boolean; tts: boolean };
+  speak(text: string): Promise<{ played: boolean; local: boolean }>;
+  transcribe(input: { audio: Buffer; mime: string; filename?: string }): Promise<string>;
+}
+
 export interface HostToolDeps {
   browser: BrowserDeps;
   knowledge: KnowledgeDeps;
+  voice: VoiceDeps;
   captureScreen(): Promise<{ mime: string; base64: string; width: number; height: number }>;
   notify(input: { title: string; body: string }): void;
   clipboardRead(): string;
@@ -63,8 +72,69 @@ export interface HostTool {
 
 const str = (v: unknown, fallback = ''): string => (typeof v === 'string' ? v : fallback);
 
+const AUDIO_MIME: Record<string, string> = {
+  wav: 'audio/wav', mp3: 'audio/mpeg', m4a: 'audio/mp4', mp4: 'audio/mp4',
+  ogg: 'audio/ogg', webm: 'audio/webm', flac: 'audio/flac',
+};
+
 export function buildHostTools(deps: HostToolDeps): HostTool[] {
   return [
+    {
+      spec: {
+        name: 'Speak',
+        description:
+          'Say something out loud through the speakers. Use for short spoken replies, or to get ' +
+          "the user's attention when they are not looking at the screen. Not for long text.",
+        schema: {
+          type: 'object',
+          properties: { text: { type: 'string', description: 'what to say' } },
+          required: ['text'],
+        },
+      },
+      handle: async (args) => {
+        if (!deps.voice.enabled().tts) {
+          return { spoken: false, reason: 'no TTS provider configured (Settings → 음성)' };
+        }
+        const text = str(args.text);
+        if (!text.trim()) return { spoken: false, reason: 'empty text' };
+        const result = await deps.voice.speak(text);
+        return { spoken: result.played, throughOs: result.local };
+      },
+    },
+    {
+      spec: {
+        name: 'Transcribe',
+        description:
+          'Transcribe an audio file in the workspace to text. Accepts wav, mp3, m4a, ogg, webm, flac.',
+        schema: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'path to the audio file' },
+            language: { type: 'string', description: 'ISO code, e.g. ko — omit to auto-detect' },
+          },
+          required: ['path'],
+        },
+      },
+      handle: async (args, ctx) => {
+        if (!deps.voice.enabled().stt) {
+          return { text: null, reason: 'no STT provider configured (Settings → 음성)' };
+        }
+        const requested = str(args.path);
+        // the same jail every other file tool obeys: inside this agent only
+        const full = requested.startsWith('/') ? requested : join(ctx.agentDir, 'workspace', requested);
+        if (!full.startsWith(ctx.agentDir)) {
+          throw new Error('audio file is outside this agent\'s directory');
+        }
+        const audio = await readFile(full);
+        const ext = full.split('.').pop()?.toLowerCase() ?? '';
+        const text = await deps.voice.transcribe({
+          audio,
+          mime: AUDIO_MIME[ext] ?? 'audio/wav',
+          filename: full.split('/').pop(),
+        });
+        return { text, path: full };
+      },
+    },
     {
       spec: {
         name: 'ScreenCapture',

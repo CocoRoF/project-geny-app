@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import type { AvatarState } from '@shared/api-types';
 import type { SidecarEvent } from '@shared/sidecar-protocol';
+import { attachVoicePlayback, voicePlayer } from '../voice/player';
 import { createMmdStage, type StageHandle } from './mmd-stage';
 
 type Mood = 'idle' | 'thinking' | 'speaking' | 'waiting' | 'error';
@@ -69,6 +70,9 @@ export function AvatarSurface(): JSX.Element {
    *  accept */
   const [ready, setReady] = useState<{ morphs: number; physics: boolean } | null>(null);
   const [hover, setHover] = useState(false);
+  /** true while real audio is coming out of the speakers — the mouth
+   *  follows the waveform then, not the token stream */
+  const [speakingAloud, setSpeakingAloud] = useState(false);
 
   useEffect(() => {
     void window.geny.avatar.state().then(setState);
@@ -82,6 +86,23 @@ export function AvatarSurface(): JSX.Element {
     return off;
   }, []);
 
+  // The overlay is where synthesized speech plays when it is up (the main
+  // process sends it to exactly one window), which is what makes real
+  // lip-sync possible instead of a guessed rhythm.
+  useEffect(() => {
+    const offAudio = attachVoicePlayback();
+    const offLevel = voicePlayer.onLevel((level) => {
+      const stage = stageRef.current;
+      if (!stage) return;
+      stage.setMouth(level);
+      setSpeakingAloud(level > 0.02);
+    });
+    return () => {
+      offAudio();
+      offLevel();
+    };
+  }, []);
+
   // idle again a moment after the last token: a model frozen mid-smile
   // reads as broken, and turns end without a tidy "stopped speaking" event
   useEffect(() => {
@@ -91,6 +112,10 @@ export function AvatarSurface(): JSX.Element {
   }, [mood]);
 
   const modelUrl = state?.modelUrl;
+  const kind = state?.kind;
+  // only the MMD path renders into our own WebGL canvas; `web` runs the
+  // folder's own page in a frame and `image` is just a picture
+  const nativeUrl = kind === 'mmd' ? modelUrl : undefined;
 
   useEffect(() => {
     let cancelled = false;
@@ -98,12 +123,12 @@ export function AvatarSurface(): JSX.Element {
     stageRef.current = null;
     setError(null);
     setReady(null);
-    if (!modelUrl || !canvasRef.current) return undefined;
+    if (!nativeUrl || !canvasRef.current) return undefined;
 
     setLoading(true);
     void createMmdStage({
       canvas: canvasRef.current,
-      modelUrl,
+      modelUrl: nativeUrl,
       onReady: (info) => setReady({ morphs: info.morphs.length, physics: info.physics }),
     })
       .then((stage) => {
@@ -125,7 +150,7 @@ export function AvatarSurface(): JSX.Element {
       stageRef.current?.dispose();
       stageRef.current = null;
     };
-  }, [modelUrl]);
+  }, [nativeUrl]);
 
   // mouth + expression follow the mood; the stage ignores morphs the model
   // does not have, so this is safe for any PMX
@@ -134,12 +159,14 @@ export function AvatarSurface(): JSX.Element {
     if (!stage) return undefined;
     const names = stage.morphNames();
     stage.setExpression(MOOD_MORPHS[mood].find((n) => names.includes(n)) ?? null);
-    if (mood !== 'speaking') {
-      stage.setMouth(0);
+    // real audio wins: when speech is actually playing, the waveform owns
+    // the mouth and this fallback must keep its hands off
+    if (mood !== 'speaking' || speakingAloud) {
+      if (!speakingAloud) stage.setMouth(0);
       return undefined;
     }
-    // no audio yet, so the mouth is driven by a talking rhythm rather than
-    // amplitude — replaced when TTS lands
+    // text-only reply — approximate a talking rhythm so the model is not
+    // silently frozen while words appear
     const timer = setInterval(() => {
       stage.setMouth(0.15 + Math.random() * 0.55);
     }, 110);
@@ -147,7 +174,14 @@ export function AvatarSurface(): JSX.Element {
       clearInterval(timer);
       stage.setMouth(0);
     };
-  }, [mood]);
+  }, [mood, speakingAloud]);
+
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  useEffect(() => {
+    // the folder's page is another document; the only thing we tell it is
+    // what the agent is doing, and it may ignore that entirely
+    frameRef.current?.contentWindow?.postMessage({ genyMood: mood }, '*');
+  }, [mood, modelUrl]);
 
   const interactive = state ? !state.clickThrough : false;
 
@@ -155,25 +189,72 @@ export function AvatarSurface(): JSX.Element {
     <div
       data-testid="avatar-surface"
       data-model={state?.modelId ?? ''}
+      data-kind={kind ?? ''}
       data-mood={mood}
       data-loading={loading ? 'true' : 'false'}
       data-ready={ready ? 'true' : 'false'}
       data-morphs={ready?.morphs ?? 0}
       data-physics={ready?.physics ? 'true' : 'false'}
+      data-speaking={speakingAloud ? 'true' : 'false'}
       data-error={error ?? ''}
       className="relative h-screen w-screen overflow-hidden"
       style={{ background: 'transparent' }}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
-      <canvas ref={canvasRef} className="h-full w-full" style={{ outline: 'none' }} />
+      {kind === 'mmd' && (
+        <canvas ref={canvasRef} className="h-full w-full" style={{ outline: 'none' }} />
+      )}
+
+      {/* The bypass for formats whose runtime cannot ship: the folder's own
+          page draws itself, we only give it a transparent rectangle. */}
+      {kind === 'web' && modelUrl && (
+        <iframe
+          // Remount when the folder's runtime situation changes: a page
+          // that already rendered "these files are missing" will not
+          // discover on its own that they since arrived.
+          key={`${modelUrl}|${(state?.missing ?? []).join(',')}`}
+          ref={frameRef}
+          title="avatar"
+          src={modelUrl}
+          className="h-full w-full border-0"
+          style={{ background: 'transparent', colorScheme: 'normal' }}
+          // it is the user's own local page; it gets a frame, not the app
+          sandbox="allow-scripts allow-same-origin"
+        />
+      )}
+
+      {kind === 'image' && modelUrl && (
+        /\.(webm|mp4)$/i.test(modelUrl) ? (
+          <video
+            src={modelUrl}
+            className="h-full w-full object-contain"
+            autoPlay
+            loop
+            muted
+            playsInline
+          />
+        ) : (
+          <img src={modelUrl} alt="" className="h-full w-full object-contain" />
+        )
+      )}
 
       {!modelUrl && (
         <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-xs text-white/80">
           <span className="rounded bg-black/60 px-3 py-2">
-            아바타 모델이 없습니다.
-            <br />
-            데이터 폴더의 <code>avatars/</code> 에 PMX 모델 폴더를 넣어 주세요.
+            {state?.missing?.length ? (
+              <>
+                {state.modelName} 을(를) 표시하려면 런타임이 필요합니다.
+                <br />
+                <code>{state.missing.join(', ')}</code>
+              </>
+            ) : (
+              <>
+                아바타 모델이 없습니다.
+                <br />
+                데이터 폴더의 <code>avatars/</code> 에 모델 폴더를 넣어 주세요.
+              </>
+            )}
           </span>
         </div>
       )}

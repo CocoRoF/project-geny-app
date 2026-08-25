@@ -8,6 +8,7 @@
  */
 import { pathToFileURL } from 'node:url';
 import type { AvatarModel, AvatarState } from '@shared/api-types';
+import { scaffold } from './avatar-scaffold';
 import { avatarsDir, findAvatar, listAvatars } from './avatars';
 import { AvatarWindow, type AvatarBounds, type AvatarWindowDeps } from './avatar-window';
 
@@ -81,20 +82,56 @@ export class AvatarController {
     return models.length === 1 ? models[0] : undefined;
   }
 
+  /** Can this model actually be put on screen right now? A Live2D folder
+   *  with no page and no runtime is a real model that is not yet showable,
+   *  and pretending otherwise makes the overlay open onto nothing. */
+  private displayable(model: AvatarModel | undefined): boolean {
+    return Boolean(model && model.file);
+  }
+
+  /**
+   * Write the display page for a Live2D/Spine folder.
+   *
+   * This is the whole bypass: the app cannot ship those runtimes, but it
+   * can write the page that loads them out of the folder — so the format
+   * goes from unsupported to "bring the runtime you are licensed for".
+   */
+  scaffold(modelId: string): { created: boolean; page: string } {
+    const model = findAvatar(this.deps.dataRoot, modelId);
+    if (!model) throw new Error(`unknown avatar ${modelId}`);
+    if (model.kind !== 'live2d' && model.kind !== 'spine') {
+      throw new Error(`${model.kind} 은(는) 표시용 페이지가 필요하지 않습니다`);
+    }
+    const result = scaffold(model.dir, model.kind);
+    this.changed();
+    return result;
+  }
+
   state(): AvatarState {
     const model = this.selected();
     return {
-      available: this.models().length > 0,
+      // only counts models that can actually be shown — a folder waiting on
+      // a runtime is listed, but it cannot make the overlay openable
+      available: this.models().some((m) => this.displayable(m)),
       visible: this.overlay?.visible ?? false,
       clickThrough: this.overlay?.isClickThrough() ?? this.deps.settings.get(KEYS.clickThrough) !== 'false',
       modelId: model?.id,
       modelName: model?.name,
+      kind: model?.kind,
+      missing: model?.missing ?? [],
       // the renderer loads textures relative to this, so it must be the real
       // file URL rather than a copy the app serves
-      modelUrl: model ? pathToFileURL(model.file).href : undefined,
+      modelUrl: this.displayable(model) ? pathToFileURL(model!.file).href : undefined,
       scale: Number(this.deps.settings.get(KEYS.scale) ?? '1') || 1,
       folder: this.folder(),
     };
+  }
+
+  /** Re-inspect the folders and tell every surface. The folders are the
+   *  source of truth and they change behind the app's back — a file dropped
+   *  into `runtime/` is exactly that. */
+  refresh(): AvatarState {
+    return this.changed();
   }
 
   private changed(): AvatarState {
@@ -117,7 +154,16 @@ export class AvatarController {
   }
 
   show(): AvatarState {
-    if (!this.selected()) throw new Error('아바타 모델이 없습니다 — 폴더에 PMX 모델을 넣어 주세요');
+    const model = this.selected();
+    if (!model) {
+      throw new Error('아바타 모델이 없습니다 — 폴더에 모델을 넣어 주세요');
+    }
+    if (!this.displayable(model)) {
+      const need = model.missing.length
+        ? ` — ${model.missing.join(', ')} 이(가) 필요합니다`
+        : ' — 표시용 페이지를 먼저 만들어 주세요';
+      throw new Error(`'${model.name}' 은(는) 아직 표시할 수 없습니다${need}`);
+    }
     this.ensureWindow().show();
     this.deps.settings.set(KEYS.visible, 'true');
     return this.changed();
@@ -142,7 +188,7 @@ export class AvatarController {
   /** Restore the overlay if it was showing when the app last closed. */
   restore(): void {
     if (this.deps.settings.get(KEYS.visible) !== 'true') return;
-    if (!this.selected()) return;
+    if (!this.displayable(this.selected())) return;
     this.ensureWindow().show();
   }
 

@@ -23,6 +23,7 @@ import { DEFAULT_SHORTCUT, QuickChat, quickChatPaths } from './quick-chat';
 import { forwardEvent, registerIpc } from './ipc';
 import { createSecretStore } from './secrets';
 import { Updater } from './updater';
+import { VoiceService } from './voice/service';
 
 const isDev = !app.isPackaged;
 
@@ -107,7 +108,32 @@ async function boot(): Promise<void> {
   // the user's documents, indexed locally — no API calls, no new deps
   const knowledge = new KnowledgeStore(resolved.dataRoot);
 
+  // Voice is a CLIENT, never a server: this app serves no audio. It calls
+  // OpenAI, a self-hosted geny-audio-services box, a user-described
+  // endpoint, or the OS's own voice.
+  const voice = new VoiceService({
+    settings: store.settings,
+    secrets: {
+      get: (key) => secrets.get(key),
+      set: (key, value) => secrets.set(key, value),
+      delete: (key) => secrets.remove(key),
+    },
+    play: (audio) => {
+      // EXACTLY one surface plays it, or the user hears it twice. The
+      // avatar gets first refusal when it is up, because it drives its
+      // mouth from the waveform; otherwise the main window plays it.
+      const target = avatar?.window() ?? mainWindow;
+      const win = target && !target.isDestroyed() ? target : mainWindow;
+      if (win && !win.isDestroyed()) win.webContents.send('voice:audio', audio);
+    },
+  });
+
   const hostTools = buildHostTools({
+    voice: {
+      enabled: () => voice.enabled(),
+      speak: (text) => voice.speak(text),
+      transcribe: (input) => voice.transcribe(input),
+    },
     knowledge: {
       search: (query, limit) => knowledge.search(query, limit),
       read: (path) => knowledge.read(path),
@@ -173,6 +199,23 @@ async function boot(): Promise<void> {
     emit: (event) => forwardEvent(surfaces(), event),
     persistAssistant: (agentId, text) => {
       store.messages.append({ agentId, role: 'assistant', text });
+      // Speaking is opt-in and happens once per turn, from the whole reply
+      // — reading each chunk as it arrives would stutter and overlap.
+      if (voice.config().tts.autoSpeak) {
+        // a 4,000-word answer is not something anyone wants read aloud, and
+        // a GPU box would be busy for minutes producing it
+        const spoken = text.trim().slice(0, 600);
+        if (spoken) {
+          void voice.speak(spoken).catch((err: unknown) => {
+            const why = err instanceof Error ? err.message : String(err);
+            for (const win of surfaces()) {
+              if (win && !win.isDestroyed()) {
+                win.webContents.send('chat:hostSay', { agentId, level: 'warn', message: `음성 재생 실패: ${why}` });
+              }
+            }
+          });
+        }
+      }
     },
     onStatus: (status) => {
       for (const win of surfaces()) {
@@ -225,6 +268,7 @@ async function boot(): Promise<void> {
   registerIpc({
     ipcMain,
     avatar,
+    voice,
     knowledge,
     showQuickChat: () => quickChat?.show(),
     hideQuickChat: () => quickChat?.hide(),

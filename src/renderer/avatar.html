@@ -9,10 +9,12 @@
         · wasm-unsafe-eval — the physics solver is WebAssembly
         · file: in img/media/connect — the model's textures live next to the
           .pmx in the user's own folder and are loaded by relative path
+        · frame-src file: — a Live2D/Spine folder draws itself in its own
+          page, because this app may not ship those runtimes
       The main window keeps `default-src 'self'`; nothing gained this here.
     -->
     <meta http-equiv="Content-Security-Policy"
-          content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: file:; media-src 'self' blob: file:; connect-src 'self' data: blob: file:; worker-src 'self' blob:" />
+          content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: file:; media-src 'self' blob: file:; connect-src 'self' data: blob: file:; worker-src 'self' blob:; frame-src file:" />
     <title>Geny Avatar</title>
   </head>
   <body>

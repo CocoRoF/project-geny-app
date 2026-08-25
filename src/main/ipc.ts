@@ -13,6 +13,8 @@ import { listDir, preview } from './fs-browse';
 import type { SidecarEvent } from '@shared/sidecar-protocol';
 import type { Store } from './db';
 import type { AvatarController } from './avatar';
+import type { VoiceService } from './voice/service';
+import type { VoiceConfig } from '@shared/voice';
 import { knowledgeDir, type KnowledgeStore } from './knowledge';
 import { readMemory, readMemoryNote, readTranscript } from './memory-browser';
 import { listPersonas, personaDir, savePersona } from './personas';
@@ -37,6 +39,14 @@ export const CHANNELS = {
   memoryNote: 'memory:note',
   memoryTranscript: 'memory:transcript',
   memoryFolder: 'memory:openFolder',
+  voiceConfig: 'voice:config',
+  voiceSave: 'voice:save',
+  voiceSetKey: 'voice:setKey',
+  voiceHealth: 'voice:health',
+  voiceVoices: 'voice:voices',
+  voiceTranscribe: 'voice:transcribe',
+  voiceSpeak: 'voice:speak',
+  voiceAudioEvent: 'voice:audio',
   avatarList: 'avatar:list',
   avatarState: 'avatar:state',
   avatarSelect: 'avatar:select',
@@ -45,6 +55,7 @@ export const CHANNELS = {
   avatarToggle: 'avatar:toggle',
   avatarClickThrough: 'avatar:setClickThrough',
   avatarScale: 'avatar:setScale',
+  avatarScaffold: 'avatar:scaffold',
   avatarFolder: 'avatar:openFolder',
   avatarStateEvent: 'avatar:stateEvent',
   personasList: 'personas:list',
@@ -85,6 +96,7 @@ export const CHANNELS = {
 export interface IpcDeps {
   knowledge: KnowledgeStore;
   avatar: AvatarController;
+  voice: VoiceService;
   showQuickChat(): void;
   hideQuickChat(): void;
   ipcMain: IpcMain;
@@ -118,9 +130,26 @@ export function registerIpc(deps: IpcDeps): void {
     deps.hideQuickChat();
   });
 
+  ipcMain.handle(CHANNELS.voiceConfig, () => deps.voice.config());
+  ipcMain.handle(CHANNELS.voiceSave, (_e, config: VoiceConfig) => deps.voice.save(config));
+  ipcMain.handle(CHANNELS.voiceSetKey, (_e, which: 'stt' | 'tts', key: string | null) =>
+    deps.voice.setKey(which, key));
+  ipcMain.handle(CHANNELS.voiceHealth, () => deps.voice.health());
+  ipcMain.handle(CHANNELS.voiceVoices, () => deps.voice.voices());
+  ipcMain.handle(CHANNELS.voiceTranscribe, async (_e, input: { base64: string; mime: string }) => ({
+    text: await deps.voice.transcribe({
+      audio: Buffer.from(input.base64, 'base64'),
+      mime: input.mime,
+    }),
+  }));
+  ipcMain.handle(CHANNELS.voiceSpeak, (_e, text: string) => deps.voice.speak(text));
+
+  // listing re-inspects the folders, so it doubles as the refresh the
+  // "다시 찾기" button needs — and it PUBLISHES, so an overlay that is
+  // already open learns that a missing runtime has since been supplied
   ipcMain.handle(CHANNELS.avatarList, () => ({
     models: deps.avatar.models(),
-    state: deps.avatar.state(),
+    state: deps.avatar.refresh(),
   }));
   ipcMain.handle(CHANNELS.avatarState, () => deps.avatar.state());
   ipcMain.handle(CHANNELS.avatarSelect, (_e, modelId: string | null) => deps.avatar.select(modelId));
@@ -130,6 +159,10 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNELS.avatarClickThrough, (_e, enabled: boolean) =>
     deps.avatar.setClickThrough(enabled));
   ipcMain.handle(CHANNELS.avatarScale, (_e, scale: number) => deps.avatar.setScale(scale));
+  ipcMain.handle(CHANNELS.avatarScaffold, (_e, modelId: string) => {
+    const result = deps.avatar.scaffold(modelId);
+    return { ...result, models: deps.avatar.models(), state: deps.avatar.state() };
+  });
   ipcMain.handle(CHANNELS.avatarFolder, async () => {
     await deps.shell.openPath(deps.avatar.folder());
   });
@@ -244,7 +277,7 @@ export function registerIpc(deps: IpcDeps): void {
   );
 
   ipcMain.handle(CHANNELS.secretsClear, (_e, provider: string) => {
-    deps.secrets.set(`apiKey:${provider}`, '');
+    deps.secrets.remove(`apiKey:${provider}`);
   });
   ipcMain.handle(CHANNELS.secretsBackend, () => deps.secrets.backend);
   // cached: the login-shell probe spawns a shell, which is slow enough to

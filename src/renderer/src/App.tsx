@@ -7,6 +7,7 @@ import { Onboarding } from './components/Onboarding';
 import { QuickChatSurface } from './components/QuickChatSurface';
 import { SettingsView } from './components/SettingsView';
 import { useApp } from './store/app-store';
+import { attachVoicePlayback } from './voice/player';
 import type { JSX } from 'react';
 
 function ActivityRail(): JSX.Element {
@@ -56,9 +57,13 @@ export function App(): JSX.Element {
     void window.geny.app.paths().then(setPaths);
     const offStatus = window.geny.engine.onStatus(setEngine);
     const offEvent = window.geny.chat.onEvent(applyEvent);
+    // the main window plays synthesized speech whenever the avatar overlay
+    // is not up to do it (main sends the audio to exactly one window)
+    const offAudio = attachVoicePlayback();
     return () => {
       offStatus();
       offEvent();
+      offAudio();
     };
   }, [setEngine, setAgents, setPaths, applyEvent]);
 

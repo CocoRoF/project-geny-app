@@ -135,11 +135,20 @@ export const TOOL_GROUPS: ToolGroup[] = [
       { name: 'BrowserClose', label: '닫기' },
     ],
   },
+  {
+    id: 'voice',
+    label: '음성',
+    hint: '설정한 음성 서비스로 말하고 듣습니다 — 앱은 직접 서빙하지 않고 호출만 합니다',
+    tools: [
+      { name: 'Speak', label: '소리내어 말하기' },
+      { name: 'Transcribe', label: '오디오 파일 받아쓰기' },
+    ],
+  },
 ];
 
 /** Names the desktop side implements — they are not engine built-ins. */
 export const HOST_TOOL_NAMES = new Set(
-  TOOL_GROUPS.filter((g) => ['desktop', 'browser', 'knowledge'].includes(g.id)).flatMap((g) =>
+  TOOL_GROUPS.filter((g) => ['desktop', 'browser', 'knowledge', 'voice'].includes(g.id)).flatMap((g) =>
     g.tools.map((t) => t.name),
   ),
 );

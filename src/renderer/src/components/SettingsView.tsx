@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import type { CliInfo } from '@shared/api-types';
 import { useApp } from '../store/app-store';
 import { AvatarSettings } from './AvatarSettings';
+import { VoiceSettings } from './VoiceSettings';
 
 const PROVIDERS = [
   { id: 'anthropic', label: 'Anthropic API', hint: 'console.anthropic.com 에서 발급' },
@@ -117,6 +118,8 @@ export function SettingsView(): JSX.Element {
           엔진 다시 시작
         </button>
       </section>
+
+      <VoiceSettings />
 
       <AvatarSettings />
 

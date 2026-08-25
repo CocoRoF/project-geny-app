@@ -1,6 +1,7 @@
 /** The only bridge. Shapes must match @shared/api-types exactly. */
 import { contextBridge, ipcRenderer } from 'electron';
 import type { AgentRecord, AvatarState, EngineStatus, GenyApi } from '@shared/api-types';
+import type { SpokenAudio } from '@shared/voice';
 import type { SidecarEvent } from '@shared/sidecar-protocol';
 
 const subscribe = <T>(channel: string, cb: (payload: T) => void): (() => void) => {
@@ -33,6 +34,16 @@ const api: GenyApi = {
     transcript: (agentId) => ipcRenderer.invoke('memory:transcript', agentId),
     openFolder: (agentId) => ipcRenderer.invoke('memory:openFolder', agentId),
   },
+  voice: {
+    config: () => ipcRenderer.invoke('voice:config'),
+    save: (config) => ipcRenderer.invoke('voice:save', config),
+    setKey: (which, key) => ipcRenderer.invoke('voice:setKey', which, key),
+    health: () => ipcRenderer.invoke('voice:health'),
+    voices: () => ipcRenderer.invoke('voice:voices'),
+    transcribe: (input) => ipcRenderer.invoke('voice:transcribe', input),
+    speak: (text) => ipcRenderer.invoke('voice:speak', text),
+    onAudio: (cb) => subscribe<SpokenAudio>('voice:audio', cb),
+  },
   avatar: {
     list: () => ipcRenderer.invoke('avatar:list'),
     state: () => ipcRenderer.invoke('avatar:state'),
@@ -42,6 +53,7 @@ const api: GenyApi = {
     toggle: () => ipcRenderer.invoke('avatar:toggle'),
     setClickThrough: (enabled) => ipcRenderer.invoke('avatar:setClickThrough', enabled),
     setScale: (scale) => ipcRenderer.invoke('avatar:setScale', scale),
+    scaffold: (modelId) => ipcRenderer.invoke('avatar:scaffold', modelId),
     openFolder: () => ipcRenderer.invoke('avatar:openFolder'),
     onState: (cb) => subscribe<AvatarState>('avatar:stateEvent', cb),
   },

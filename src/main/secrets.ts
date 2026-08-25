@@ -14,6 +14,8 @@ export interface SecretStore {
   set(key: string, value: string): void;
   get(key: string): string | undefined;
   has(key: string): boolean;
+  /** actually drop the entry — clearing by writing '' leaves a row behind */
+  remove(key: string): void;
 }
 
 export interface SafeStorageLike {
@@ -61,6 +63,10 @@ export function createSecretStore(dir: string, safeStorage?: SafeStorageLike): S
     },
     has(key) {
       return typeof cache[key] === 'string' && cache[key]!.length > 0;
+    },
+    remove(key) {
+      delete cache[key];
+      persist();
     },
   };
 }

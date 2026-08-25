@@ -37,9 +37,12 @@
 | **위임** | 서브에이전트에 일을 맡기고 그 활동을 대화에 표시 (worker · researcher · summarizer · critic) |
 | **퀵챗** | `Ctrl/Cmd+Shift+G` — 다른 앱 위에 떠서 바로 묻고 답을 받습니다. 트레이 상주 |
 | **브라우저** | 에이전트가 실제 브라우저 창을 조작합니다 — 열기 · 요소 스냅샷 · 클릭/입력 · 본문 읽기 |
-| **아바타** | MMD(PMX) 3D 모델이 바탕화면 위에 떠서 생각·발화·승인 대기에 반응. 클릭 통과 · 위치 기억 |
+| **아바타** | 바탕화면 위에 떠서 생각·발화·승인 대기에 반응하고, 음성 파형에 맞춰 입을 움직입니다. MMD(PMX)는 앱이 직접 렌더링 · Live2D · Spine · 이미지/영상 · 자체 페이지도 표시 |
+| **음성** | 받아쓰기·말하기를 **호출**합니다 — Geny `geny-audio-services`(omnivoice · whisper) · OpenAI · 직접 지정 · OS 내장. 누르고 말하기 · 답변 자동 낭독 |
 
-제거된 것: GAPT(샌드박스) · 클라우드/동기화 · 오디오 자체 서빙 · 로그인/관리자.
+제거된 것: GAPT(샌드박스) · 클라우드/동기화 · **오디오 자체 서빙** · 로그인/관리자.
+음성은 서빙하지 않고 **연결**합니다 — GPU 서버에 [`geny-audio-services`](https://github.com/CocoRoF/geny-audio-services)
+를 띄웠다면 주소만 적으면 됩니다.
 
 ## 설치
 
@@ -95,6 +98,8 @@ npm run dist            # 파이썬 동봉 → 검증 → 인스톨러
 | `engine/.venv/bin/python test/hooks_engine_test.py` | 훅이 실제로 셸 실행을 차단 (모델 불필요) |
 | `node test/knowledge.mjs` | 문서 색인·검색 (한국어 2글자 질의 포함) |
 | `node test/avatar.mjs` | PMX 모델이 WebGL 에 실제로 로드(모프·물리 확인)·클릭 통과·재시작 복원 |
+| `node test/avatar-formats.mjs` | Live2D · Spine · 이미지 인식, 표시용 페이지 생성, 런타임 없을 때/있을 때 동작 |
+| `node test/voice.mjs` | 스텁 서비스에 실제로 보낸 요청 검증 — omnivoice clone 필드 · whisper multipart · 로딩중 판별 |
 | `engine/.venv/bin/python test/permission_engine_test.py` | 승인 요청이 사용자에게 도달하고 승인/거부가 반영 |
 | `node scripts/verify-bundle.mjs` | 동봉 파이썬이 실제로 돌고 프로토콜을 말하는지 |
 

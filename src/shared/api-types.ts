@@ -4,6 +4,7 @@
  * here first, which keeps the IPC surface reviewable in one file.
  */
 import type { AgentPosture, HitlDecision, SidecarEvent, TurnConfig } from './sidecar-protocol';
+import type { SpokenAudio, VoiceConfig, VoiceHealth, VoiceOption } from './voice';
 
 export interface AgentRecord {
   id: string;
@@ -128,13 +129,22 @@ export interface MemoryOverview {
   transcript?: { path: string; turns: number; bytes: number };
 }
 
-/** A PMX model folder the user dropped into `<data-root>/avatars`. */
+/** How a model folder is displayed. See src/main/avatars.ts for why the
+ *  split is a licensing one rather than a technical one. */
+export type AvatarKind = 'mmd' | 'live2d' | 'spine' | 'web' | 'image' | 'unknown';
+
+/** A model folder the user dropped into `<data-root>/avatars`. */
 export interface AvatarModel {
   id: string;
   name: string;
+  kind: AvatarKind;
   file: string;
   dir: string;
   bytes: number;
+  /** runtime files the format needs that are not in the folder — non-empty
+   *  means the app can name the avatar but not yet show it */
+  missing: string[];
+  source?: string;
 }
 
 export interface AvatarState {
@@ -145,8 +155,12 @@ export interface AvatarState {
   clickThrough: boolean;
   modelId?: string;
   modelName?: string;
-  /** file:// URL of the .pmx; textures resolve relative to it */
+  kind?: AvatarKind;
+  /** file:// URL of the thing to load — .pmx, index.html, or an image.
+   *  Relative assets resolve next to it. */
   modelUrl?: string;
+  /** runtime files still missing for the selected model */
+  missing?: string[];
   scale: number;
   folder: string;
 }
@@ -178,6 +192,21 @@ export interface GenyApi {
     transcript(agentId: string): Promise<Array<{ index: number; role: string; text: string; at?: number }>>;
     openFolder(agentId: string): Promise<void>;
   };
+  voice: {
+    config(): Promise<VoiceConfig>;
+    save(config: VoiceConfig): Promise<VoiceConfig>;
+    setKey(which: 'stt' | 'tts', key: string | null): Promise<VoiceConfig>;
+    /** actually probe both endpoints — not a guess from the config */
+    health(): Promise<{ stt: VoiceHealth; tts: VoiceHealth }>;
+    /** what the TTS service offers; omnivoice profiles carry emotions */
+    voices(): Promise<VoiceOption[]>;
+    /** send captured audio to STT and get text back */
+    transcribe(input: { base64: string; mime: string }): Promise<{ text: string }>;
+    /** synthesize and play; resolves once the audio has been handed to a surface */
+    speak(text: string): Promise<{ played: boolean; local: boolean }>;
+    /** audio to play, pushed from the main process */
+    onAudio(cb: (a: SpokenAudio) => void): () => void;
+  };
   avatar: {
     /** models found on disk plus the current overlay state */
     list(): Promise<{ models: AvatarModel[]; state: AvatarState }>;
@@ -189,6 +218,9 @@ export interface GenyApi {
     /** click-through off = the overlay accepts the mouse and can be dragged */
     setClickThrough(enabled: boolean): Promise<AvatarState>;
     setScale(scale: number): Promise<AvatarState>;
+    /** write a display page for a Live2D/Spine folder so the overlay can
+     *  show it once the user supplies the runtime */
+    scaffold(modelId: string): Promise<{ created: boolean; page: string; models: AvatarModel[]; state: AvatarState }>;
     openFolder(): Promise<void>;
     onState(cb: (s: AvatarState) => void): () => void;
   };
