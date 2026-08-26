@@ -253,6 +253,11 @@ async function boot(): Promise<void> {
   avatar = new AvatarController({
     dataRoot: resolved.dataRoot,
     settings: store.settings,
+    live2d: {
+      resourceDir: join(process.resourcesPath, 'live2d'),
+      repoRoot,
+      packaged: app.isPackaged,
+    },
     window: {
       preload: avatarPaths.preload,
       devServerUrl: process.env.ELECTRON_RENDERER_URL ?? null,

@@ -37,7 +37,7 @@
 | **위임** | 서브에이전트에 일을 맡기고 그 활동을 대화에 표시 (worker · researcher · summarizer · critic) |
 | **퀵챗** | `Ctrl/Cmd+Shift+G` — 다른 앱 위에 떠서 바로 묻고 답을 받습니다. 트레이 상주 |
 | **브라우저** | 에이전트가 실제 브라우저 창을 조작합니다 — 열기 · 요소 스냅샷 · 클릭/입력 · 본문 읽기 |
-| **아바타** | 바탕화면 위에 떠서 생각·발화·승인 대기에 반응하고, 음성 파형에 맞춰 입을 움직입니다. MMD(PMX)는 앱이 직접 렌더링 · Live2D · Spine · 이미지/영상 · 자체 페이지도 표시 |
+| **아바타** | 바탕화면 위에 떠서 생각·발화·승인 대기에 반응하고, 음성 파형에 맞춰 입을 움직입니다. **MMD**(PMX)는 앱이 직접 렌더링 · **Live2D**는 렌더러 동봉 + Cubism Core 원클릭 · Spine · 이미지/영상 · 자체 페이지 |
 | **음성** | 받아쓰기·말하기를 **호출**합니다 — Geny `geny-audio-services`(omnivoice · whisper) · OpenAI · 직접 지정 · OS 내장. 누르고 말하기 · 답변 자동 낭독 |
 
 제거된 것: GAPT(샌드박스) · 클라우드/동기화 · **오디오 자체 서빙** · 로그인/관리자.
@@ -108,6 +108,7 @@ npm run dist            # 파이썬 동봉 → 검증 → 인스톨러
 | `node test/knowledge.mjs` | 문서 색인·검색 (한국어 2글자 질의 포함) |
 | `node test/avatar.mjs` | PMX 모델이 WebGL 에 실제로 로드(모프·물리 확인)·클릭 통과·재시작 복원 |
 | `node test/avatar-formats.mjs` | Live2D · Spine · 이미지 인식, 표시용 페이지 생성, 런타임 없을 때/있을 때 동작 |
+| `GENY_LIVE2D_SAMPLE=<모델폴더> node test/live2d.mjs` | 실제 Live2D 모델 — Core 내려받기·검증, 실제 렌더링(가시 픽셀 확인) |
 | `node test/voice.mjs` | 스텁 서비스에 실제로 보낸 요청 검증 — omnivoice clone 필드 · whisper multipart · 로딩중 판별 |
 | `engine/.venv/bin/python test/permission_engine_test.py` | 승인 요청이 사용자에게 도달하고 승인/거부가 반영 |
 | `node scripts/verify-bundle.mjs` | 동봉 파이썬이 실제로 돌고 프로토콜을 말하는지 |
@@ -118,4 +119,6 @@ Linux 개발 실행에서 `chrome-sandbox` SUID 가 없으면 SIGTRAP — `--no-
 
 ## 라이선스
 
-Apache-2.0
+Apache-2.0. 설치 파일에 함께 들어가는 서드파티 구성 요소와, **동봉하지 않고 사용자가 직접
+가져오는 것**(Live2D Cubism Core · Spine 런타임)의 근거는
+[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) 를 보세요.

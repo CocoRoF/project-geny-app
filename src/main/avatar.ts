@@ -9,6 +9,7 @@
 import { pathToFileURL } from 'node:url';
 import type { AvatarModel, AvatarState } from '@shared/api-types';
 import { scaffold } from './avatar-scaffold';
+import { fetchCubismCore, installBundledRuntime, type RuntimePaths } from './live2d-runtime';
 import { avatarsDir, findAvatar, listAvatars } from './avatars';
 import { AvatarWindow, type AvatarBounds, type AvatarWindowDeps } from './avatar-window';
 
@@ -27,6 +28,8 @@ export interface AvatarSettings {
 
 export interface AvatarControllerDeps {
   dataRoot: string;
+  /** where the app's bundled Live2D (MIT) files live */
+  live2d: RuntimePaths;
   settings: AvatarSettings;
   window: Omit<AvatarWindowDeps, 'savedBounds' | 'onBoundsChanged'>;
   /** tell every surface the avatar state changed */
@@ -102,7 +105,32 @@ export class AvatarController {
     if (model.kind !== 'live2d' && model.kind !== 'spine') {
       throw new Error(`${model.kind} 은(는) 표시용 페이지가 필요하지 않습니다`);
     }
-    const result = scaffold(model.dir, model.kind);
+    const result = scaffold(model.dir, model.kind, (at) =>
+      installBundledRuntime(this.deps.live2d, at));
+    this.changed();
+    return result;
+  }
+
+  /**
+   * Download Cubism Core into a model's folder, from Live2D's own CDN.
+   *
+   * Deliberately a separate, explicit action rather than part of scaffolding:
+   * it reaches the network and it brings in proprietary code under Live2D's
+   * terms, and both of those are the user's decision to make.
+   */
+  async fetchCore(modelId: string): Promise<{ path: string; bytes: number; cached: boolean }> {
+    const model = findAvatar(this.deps.dataRoot, modelId);
+    if (!model) throw new Error(`unknown avatar ${modelId}`);
+    // A scaffolded Live2D folder reads as `web` (its own page decides how it
+    // is shown), so the kind alone cannot answer this — `source` is the file
+    // that identified the folder, and for Live2D that is the .model3.json.
+    // Re-fetching a folder that already has Core is allowed on purpose: it
+    // is how a truncated or corrupted download gets repaired.
+    const isLive2d = model.kind === 'live2d' || /\.model3\.json$/i.test(model.source ?? '');
+    if (!isLive2d) {
+      throw new Error('Cubism Core 는 Live2D 모델에만 필요합니다');
+    }
+    const result = await fetchCubismCore(model.dir);
     this.changed();
     return result;
   }

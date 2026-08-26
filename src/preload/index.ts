@@ -54,6 +54,7 @@ const api: GenyApi = {
     setClickThrough: (enabled) => ipcRenderer.invoke('avatar:setClickThrough', enabled),
     setScale: (scale) => ipcRenderer.invoke('avatar:setScale', scale),
     scaffold: (modelId) => ipcRenderer.invoke('avatar:scaffold', modelId),
+    fetchCubismCore: (modelId) => ipcRenderer.invoke('avatar:fetchCubismCore', modelId),
     openFolder: () => ipcRenderer.invoke('avatar:openFolder'),
     onState: (cb) => subscribe<AvatarState>('avatar:stateEvent', cb),
   },

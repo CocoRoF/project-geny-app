@@ -92,9 +92,10 @@ export function AvatarSurface(): JSX.Element {
   useEffect(() => {
     const offAudio = attachVoicePlayback();
     const offLevel = voicePlayer.onLevel((level) => {
-      const stage = stageRef.current;
-      if (!stage) return;
-      stage.setMouth(level);
+      // the MMD stage when the app renders the model itself, the folder's
+      // own page when it does not — the mouth follows the same waveform
+      stageRef.current?.setMouth(level);
+      frameRef.current?.contentWindow?.postMessage({ genyMouth: level }, '*');
       setSpeakingAloud(level > 0.02);
     });
     return () => {
@@ -176,12 +177,29 @@ export function AvatarSurface(): JSX.Element {
     };
   }, [mood, speakingAloud]);
 
+  /** what the folder's own page says it managed to do — the only way to
+   *  know whether a BYO-runtime avatar actually rendered */
+  const [embed, setEmbed] = useState<{
+    loaded: boolean; width?: number; height?: number; visiblePixels?: number; error?: string;
+  } | null>(null);
+  useEffect(() => {
+    const onMessage = (e: MessageEvent): void => {
+      const status = (e.data as { genyStatus?: typeof embed })?.genyStatus;
+      if (status) setEmbed(status);
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
+
   const frameRef = useRef<HTMLIFrameElement>(null);
   useEffect(() => {
     // the folder's page is another document; the only thing we tell it is
     // what the agent is doing, and it may ignore that entirely
     frameRef.current?.contentWindow?.postMessage({ genyMood: mood }, '*');
   }, [mood, modelUrl]);
+
+  // a remount means a fresh page with nothing reported yet
+  useEffect(() => setEmbed(null), [modelUrl]);
 
   const interactive = state ? !state.clickThrough : false;
 
@@ -196,6 +214,9 @@ export function AvatarSurface(): JSX.Element {
       data-morphs={ready?.morphs ?? 0}
       data-physics={ready?.physics ? 'true' : 'false'}
       data-speaking={speakingAloud ? 'true' : 'false'}
+      data-embed-loaded={embed ? String(embed.loaded) : ''}
+      data-embed-pixels={embed?.visiblePixels ?? ''}
+      data-embed-error={embed?.error ?? ''}
       data-error={error ?? ''}
       className="relative h-screen w-screen overflow-hidden"
       style={{ background: 'transparent' }}

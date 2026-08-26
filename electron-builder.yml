@@ -38,6 +38,16 @@ extraResources:
     to: tray.png
   - from: build/tray@2x.png
     to: tray@2x.png
+  # The MIT half of the Live2D runtime. Cubism Core is NOT here on purpose —
+  # see src/main/live2d-runtime.ts for the licence reasoning.
+  - from: node_modules/pixi.js/dist/browser/pixi.min.js
+    to: live2d/pixi.min.js
+  - from: node_modules/pixi.js/LICENSE
+    to: live2d/pixi.LICENSE.txt
+  - from: node_modules/pixi-live2d-display/dist/cubism4.min.js
+    to: live2d/pixi-live2d-display.min.js
+  - from: node_modules/pixi-live2d-display/LICENSE
+    to: live2d/pixi-live2d-display.LICENSE.txt
   - from: resources/RUNTIME_VERSION
     to: RUNTIME_VERSION
 

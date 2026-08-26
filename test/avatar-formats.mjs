@@ -15,7 +15,7 @@
  *  · an image folder needs no runtime at all
  */
 import { _electron as electron } from 'playwright-core';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -91,6 +91,22 @@ check(
 const made = await main.evaluate(() => window.geny.avatar.scaffold('hiyori'));
 check('a display page is written', made.created && made.page.endsWith('index.html'));
 check('the folder is now displayable', made.models.find((m) => m.id === 'hiyori')?.kind === 'web');
+// the MIT half of the runtime ships with the app, so scaffolding installs it
+check(
+  'the MIT renderer is installed by the app',
+  made.installed.includes('pixi.min.js') && made.installed.includes('pixi-live2d-display.min.js'),
+  made.installed.join(', '),
+);
+check(
+  'their licences travel with them',
+  existsSync(join(l2d, 'runtime', 'pixi.LICENSE.txt')) &&
+    existsSync(join(l2d, 'runtime', 'pixi-live2d-display.LICENSE.txt')),
+);
+check(
+  'only Cubism Core is left missing',
+  made.models.find((m) => m.id === 'hiyori')?.missing.join(',') === 'live2dcubismcore.min.js',
+  made.models.find((m) => m.id === 'hiyori')?.missing.join(','),
+);
 check(
   'the note says where the runtime goes',
   readFileSync(join(l2d, 'runtime', 'README.txt'), 'utf8').includes('live2dcubismcore.min.js'),

@@ -56,6 +56,7 @@ export const CHANNELS = {
   avatarClickThrough: 'avatar:setClickThrough',
   avatarScale: 'avatar:setScale',
   avatarScaffold: 'avatar:scaffold',
+  avatarFetchCore: 'avatar:fetchCubismCore',
   avatarFolder: 'avatar:openFolder',
   avatarStateEvent: 'avatar:stateEvent',
   personasList: 'personas:list',
@@ -161,6 +162,10 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNELS.avatarScale, (_e, scale: number) => deps.avatar.setScale(scale));
   ipcMain.handle(CHANNELS.avatarScaffold, (_e, modelId: string) => {
     const result = deps.avatar.scaffold(modelId);
+    return { ...result, models: deps.avatar.models(), state: deps.avatar.state() };
+  });
+  ipcMain.handle(CHANNELS.avatarFetchCore, async (_e, modelId: string) => {
+    const result = await deps.avatar.fetchCore(modelId);
     return { ...result, models: deps.avatar.models(), state: deps.avatar.state() };
   });
   ipcMain.handle(CHANNELS.avatarFolder, async () => {

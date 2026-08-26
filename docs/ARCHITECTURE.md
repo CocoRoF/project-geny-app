@@ -298,6 +298,33 @@ OpenAI · 직접 지정), TTS 4종(Geny omnivoice · OpenAI · OS 내장 · 직�
   MMD 물리가 요구하는 `wasm-unsafe-eval` 과 텍스처의 `file:` 접근 때문에 메인 창의
   CSP(`default-src 'self'`)까지 느슨해진다. 엔트리를 나누면 완화된 CSP 가 오버레이에만 적용된다.
 
+**결정 9-C — Live2D: 렌더러는 동봉, Cubism Core 는 원클릭 다운로드**
+
+라이선스를 실제로 읽고 내린 결론이며, 처음 가정과 다르다.
+
+`live2dcubismcore.min.js` 는 **파일 헤더 자체가** `This file corresponds to the
+"Redistributable Code" in the agreement` 라고 밝히고 있고, 독점 소프트웨어 사용권 계약
+§5.1 은 응용 프로그램의 일부로 배포하는 것을 허용한다. 즉 **동봉 자체는 원칙적으로 가능**하다.
+
+막는 것은 다른 문서다. SDK 로 만든 저작물을 *공개*하려면 SDK 배포 라이선스가 필요하고,
+개인·소규모는 면제되지만 **"Expandable Application" 은 그 면제에서 제외**된다. Live2D 는 이를
+"파일/데이터 조합으로 무제한의 모델 수를 만들어내는 저작물(아바타, 스트리밍 앱 …)" 로 정의하고,
+도움말은 예시로 **"avatar systems"** 를 든다. 그리고:
+
+> A separate contract is also required for each work, regardless of whether the user is
+> a General User, Small-Scale Enterprise, or Large Entity.
+
+이 앱이 정확히 그 범주다 — 사용자가 모델을 무제한으로 넣는 아바타 오버레이. 동봉해서 공개하면
+"SDK 로 만든 Expandable Application 을 배포"하는 것이 되고, 그건 매출과 무관하게 계약이 필요하다.
+
+**그래서 나눈다.**
+- `pixi.js` · `pixi-live2d-display` 는 MIT → **앱이 동봉**한다.
+- Cubism Core 는 **명시적 클릭 한 번**으로 Live2D 공식 CDN 에서 *사용자의 모델 폴더*로
+  내려받는다. 사용자가 Live2D 로부터 직접 받는 것이고, 이 프로젝트는 아무것도 재배포하지 않는다.
+
+사용자 체감은 클릭 한 번으로 동일하고, 법적으로는 깨끗하다. 받은 파일 옆에는 원문 라이선스
+헤더와 근거 링크가 함께 기록된다. **혼자 쓰는 것은 제약 대상이 아니다** — 제약은 *배포*에 붙는다.
+
 **동봉되지 않는 것은 막지 않는다 — 우회 경로 (결정 9-B)**
 
 포맷을 *지원하지 않는 것*과 *런타임을 동봉하지 않는 것*은 다르다. 그래서 폴더의 내용으로
@@ -308,7 +335,7 @@ OpenAI · 직접 지정), TTS 4종(Geny omnivoice · OpenAI · OS 내장 · 직�
 | `mmd` (.pmx) | 앱이 직접 렌더링 (babylon-mmd) | 런타임 전체 |
 | `image` (gif·webp·webm·png) | 그대로 표시 | 없음 (필요 없음) |
 | `web` (폴더의 index.html) | iframe 으로 그 페이지를 표시 | 없음 |
-| `live2d` (.model3.json) | 앱이 **표시용 페이지를 써 주고**, 그 페이지가 `runtime/` 에서 사용자의 런타임을 불러온다 | 페이지만 |
+| `live2d` (.model3.json) | 앱이 표시용 페이지 + MIT 렌더러를 넣고, Cubism Core 만 클릭 한 번으로 Live2D 에서 받아온다 | 페이지 + pixi · pixi-live2d-display (MIT) |
 | `spine` (.atlas + 스켈레톤) | 위와 동일 | 페이지만 |
 
 규칙 하나로 요약된다: **설치 파일은 독점 바이트를 나르지 않고, 앱은 아무것도 몰래 내려받지

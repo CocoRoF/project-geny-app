@@ -220,7 +220,12 @@ export interface GenyApi {
     setScale(scale: number): Promise<AvatarState>;
     /** write a display page for a Live2D/Spine folder so the overlay can
      *  show it once the user supplies the runtime */
-    scaffold(modelId: string): Promise<{ created: boolean; page: string; models: AvatarModel[]; state: AvatarState }>;
+    scaffold(modelId: string): Promise<{ created: boolean; page: string; installed: string[]; models: AvatarModel[]; state: AvatarState }>;
+    /** download Cubism Core from Live2D's CDN into the model's folder — the
+     *  one piece the app may not ship (see src/main/live2d-runtime.ts) */
+    fetchCubismCore(modelId: string): Promise<{
+      path: string; bytes: number; cached: boolean; models: AvatarModel[]; state: AvatarState;
+    }>;
     openFolder(): Promise<void>;
     onState(cb: (s: AvatarState) => void): () => void;
   };
