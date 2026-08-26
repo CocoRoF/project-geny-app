@@ -17,6 +17,9 @@ export function MicButton({
   disabled?: boolean;
 }): JSX.Element | null {
   const recorder = useRef(new MicRecorder());
+  const startRef = useRef<() => void>(() => {});
+  const finishRef = useRef<() => void>(() => {});
+  const stateRef = useRef<'idle' | 'recording' | 'working'>('idle');
   const [available, setAvailable] = useState(false);
   const [state, setState] = useState<'idle' | 'recording' | 'working'>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +34,17 @@ export function MicButton({
     return () => mic.release();
   }, []);
 
-  if (!available) return null;
+  // The global hotkey has no key-up event, so it toggles: press to start,
+  // press again to send. Registered even when the button is hidden, because
+  // the whole point is not having to reach the window.
+  useEffect(() => {
+    if (!available) return undefined;
+    return window.geny.hotkeys.onPushToTalk(() => {
+      // read the live state rather than closing over a stale one
+      if (stateRef.current === 'recording') finishRef.current();
+      else if (stateRef.current === 'idle') startRef.current();
+    });
+  }, [available]);
 
   const start = (): void => {
     setError(null);
@@ -45,6 +58,8 @@ export function MicButton({
   };
 
   const finish = (): void => {
+    // onMouseLeave fires whenever the pointer passes over, so without this
+    // the button flickers through 'working' on every hover
     if (state !== 'recording') return;
     setState('working');
     void recorder.current
@@ -60,6 +75,13 @@ export function MicButton({
       .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
       .finally(() => setState('idle'));
   };
+
+  // the hotkey handler runs outside React's render, so it needs stable refs
+  startRef.current = start;
+  finishRef.current = finish;
+  stateRef.current = state;
+
+  if (!available) return null;
 
   const label = state === 'recording' ? '● 녹음 중' : state === 'working' ? '…' : '🎤';
 

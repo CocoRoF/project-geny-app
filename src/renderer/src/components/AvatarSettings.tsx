@@ -223,6 +223,14 @@ export function AvatarSettings(): JSX.Element {
         </button>
         <button
           type="button"
+          title="화면 밖으로 나가 찾을 수 없을 때"
+          className="rounded border border-line px-2 py-1 hover:bg-white/5"
+          onClick={() => run(() => window.geny.avatar.resetPosition())}
+        >
+          위치 초기화
+        </button>
+        <button
+          type="button"
           className="rounded border border-line px-2 py-1 hover:bg-white/5"
           onClick={reload}
         >

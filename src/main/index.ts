@@ -6,9 +6,15 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  app, BrowserWindow, clipboard, desktopCapturer, ipcMain, Menu, nativeImage,
-  Notification, safeStorage, screen, shell, Tray,
+  app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain,
+  Menu, nativeImage, Notification, safeStorage, screen, shell, Tray,
 } from 'electron';
+import {
+  applyAutostart, autostartActive, claimSingleInstance, launchedHidden, LogRing,
+  respawnDetached,
+} from './app-shell';
+import { ComputerUse, type ComputerUseConfig } from './computer-use';
+import { HOTKEYS, Hotkeys, type HotkeyId } from './hotkeys';
 import { AvatarController } from './avatar';
 import { avatarWindowPaths } from './avatar-window';
 import { agentDir as resolveAgentDir, layout, resolveDataRoot } from './data-root';
@@ -33,6 +39,34 @@ let quickChat: QuickChat | null = null;
 let tray: Tray | null = null;
 let browserHostRef: BrowserHost | null = null;
 let avatar: AvatarController | null = null;
+let hotkeys: Hotkeys | null = null;
+let updaterRef: Updater | null = null;
+let computerUse: ComputerUse | null = null;
+let rebuildTray: (() => void) | null = null;
+
+/** Everything the app says about itself, readable from inside the app. */
+const logs = new LogRing();
+logs.subscribe((line) => {
+  for (const win of surfaces()) {
+    if (win && !win.isDestroyed()) win.webContents.send('system:log', line);
+  }
+});
+
+/**
+ * ONE INSTANCE PER DATA ROOT.
+ *
+ * Two copies over one SQLite file, one agent workspace and one engine is a
+ * real corruption risk, and it looks like a haunting rather than a bug: two
+ * trays, two avatars, turns landing in the wrong window. Claimed before
+ * `whenReady` because a second process must die before it builds anything.
+ */
+const singleInstance = claimSingleInstance(app, process.env.GENY_DATA_ROOT, () => {
+  // launching again is a request to SEE the app
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (!mainWindow.isVisible()) mainWindow.show();
+    mainWindow.focus();
+  }
+});
 
 /** Every surface a sidecar event should reach. The avatar is one of them:
  *  it reacts to the agent thinking and speaking, so it needs the same
@@ -43,7 +77,54 @@ const surfaces = (): Array<BrowserWindow | null> => [
   avatar?.window() ?? null,
 ];
 
-function createWindow(): BrowserWindow {
+/**
+ * Capture a screen or window.
+ *
+ * `sourceId` lets the user pick which display or application window the
+ * agent sees — the primary display is a poor default on a multi-monitor desk
+ * and useless when the thing to look at is a single window.
+ */
+async function captureScreen(
+  sourceId?: string,
+): Promise<{ mime: string; base64: string; width: number; height: number }> {
+  const { width, height } = screen.getPrimaryDisplay().size;
+  const sources = await desktopCapturer.getSources({
+    types: ['screen', 'window'],
+    thumbnailSize: { width, height },
+  });
+  // a remembered source that has since gone away must not become a silent
+  // capture of something else — fall back to the primary screen explicitly
+  const chosen =
+    (sourceId ? sources.find((s) => s.id === sourceId) : undefined) ??
+    sources.find((s) => s.id.startsWith('screen:')) ??
+    sources[0];
+  const shot = chosen?.thumbnail;
+  if (!shot || shot.isEmpty()) throw new Error('screen capture unavailable');
+  return { mime: 'image/png', base64: shot.toPNG().toString('base64'), ...shot.getSize() };
+}
+
+export async function listCaptureSources(): Promise<Array<{ id: string; name: string; kind: 'screen' | 'window' }>> {
+  const sources = await desktopCapturer.getSources({
+    types: ['screen', 'window'],
+    thumbnailSize: { width: 1, height: 1 },
+  });
+  return sources.map((s) => ({
+    id: s.id,
+    name: s.name,
+    kind: s.id.startsWith('screen:') ? 'screen' : 'window',
+  }));
+}
+
+function showMain(): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+    mainWindow.focus();
+  } else {
+    mainWindow = createWindow(false);
+  }
+}
+
+function createWindow(startHidden = false): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
     height: 840,
@@ -59,7 +140,9 @@ function createWindow(): BrowserWindow {
       nodeIntegration: false,
     },
   });
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => {
+    if (!startHidden) win.show();
+  });
   win.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
     return { action: 'deny' };
@@ -88,6 +171,9 @@ async function boot(): Promise<void> {
   for (const sub of ['skills', 'commands']) {
     mkdirSync(join(resolved.dataRoot, sub), { recursive: true });
   }
+  logs.push('app', `Geny ${app.getVersion()} — ${process.platform} ${process.arch}, electron ${process.versions.electron}`);
+  logs.push('app', `data root: ${resolved.dataRoot}${resolved.portable ? ' (portable)' : ''}`);
+
   const store = openStore(paths.db);
   const secrets = createSecretStore(paths.secrets, safeStorage);
 
@@ -128,7 +214,52 @@ async function boot(): Promise<void> {
     },
   });
 
+  // ── computer use: the agent acting as the user ──────────────────────────
+  computerUse = new ComputerUse({
+    read: () => {
+      try {
+        return JSON.parse(store.settings.get('computerUse') ?? '{}') as Partial<ComputerUseConfig>;
+      } catch {
+        return {};
+      }
+    },
+    write: (config) => {
+      store.settings.set('computerUse', JSON.stringify(config));
+      rebuildTray?.();
+    },
+    // A modal, on top, naming the exact action — approving "input" in the
+    // abstract is not consent to what is about to be typed.
+    ask: async ({ capability, action, detail }) => {
+      const { response } = await dialog.showMessageBox({
+        type: 'warning',
+        buttons: ['허용', '이번 실행 동안 허용', '거부'],
+        defaultId: 2,
+        cancelId: 2,
+        noLink: true,
+        title: '컴퓨터 조작 요청',
+        message: `에이전트가 ${action} 을(를) 하려고 합니다`,
+        detail: `${detail}\n\n권한: ${capability}`,
+      });
+      return response === 0 ? 'allow' : response === 1 ? 'session' : 'deny';
+    },
+    clipboardWrite: (text) => clipboard.writeText(text),
+    openPath: async (target) => {
+      if (/^https?:\/\//i.test(target)) await shell.openExternal(target);
+      else await shell.openPath(target);
+    },
+    log: (line) => logs.push('computer', line),
+  });
+
   const hostTools = buildHostTools({
+    computer: {
+      type: (text) => computerUse!.type(text),
+      key: (combo) => computerUse!.key(combo),
+      click: (x, y, button) => computerUse!.click(x, y, button),
+      move: (x, y) => computerUse!.move(x, y),
+      scroll: (amount) => computerUse!.scroll(amount),
+      openApp: (target) => computerUse!.openApp(target),
+      noteCapture: (w, h) => computerUse!.noteCapture(w, h),
+    },
     voice: {
       enabled: () => voice.enabled(),
       speak: (text) => voice.speak(text),
@@ -147,17 +278,7 @@ async function boot(): Promise<void> {
       back: (id) => browserHost.back(id),
       close: (id) => browserHost.close(id),
     },
-    captureScreen: async () => {
-      const { width, height } = screen.getPrimaryDisplay().size;
-      const sources = await desktopCapturer.getSources({
-        types: ['screen'],
-        thumbnailSize: { width, height },
-      });
-      const shot = sources[0]?.thumbnail;
-      if (!shot || shot.isEmpty()) throw new Error('screen capture unavailable');
-      const size = shot.getSize();
-      return { mime: 'image/png', base64: shot.toPNG().toString('base64'), ...size };
-    },
+    captureScreen: async () => captureScreen(store.settings.get('capture.sourceId')),
     notify: ({ title, body }) => {
       if (Notification.isSupported()) new Notification({ title, body }).show();
     },
@@ -218,11 +339,23 @@ async function boot(): Promise<void> {
       }
     },
     onStatus: (status) => {
+      // the engine's state changes are the single most useful thing in the
+      // log when something is wrong, and they are invisible otherwise
+      logs.push(
+        'engine',
+        status.state === 'ready'
+          ? `ready — executor ${status.engine} · python ${status.python} · runtime ${status.runtime?.source}`
+          : status.state === 'failed'
+            ? `failed — ${status.error ?? 'unknown'}`
+            : status.state,
+        status.state === 'failed' ? 'error' : 'info',
+      );
       for (const win of surfaces()) {
         if (win && !win.isDestroyed()) win.webContents.send('engine:statusEvent', status);
       }
     },
     log: (line) => {
+      logs.push('engine', line);
       if (isDev) console.log('[engine]', line);
     },
   });
@@ -230,10 +363,47 @@ async function boot(): Promise<void> {
   const updater = new Updater({
     isPackaged: app.isPackaged,
     platform: process.platform,
+    version: app.getVersion(),
     window: () => mainWindow,
     onState: (state) => {
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update:state', state);
+      for (const win of surfaces()) {
+        if (win && !win.isDestroyed()) win.webContents.send('update:state', state);
+      }
+      rebuildTray?.();
     },
+    enabled: () => store.settings.get('update.enabled') !== 'false',
+    setEnabled: (value) => {
+      store.settings.set('update.enabled', String(value));
+      rebuildTray?.();
+    },
+    notify: ({ title, body, onClick }) => {
+      if (!Notification.isSupported()) return;
+      const n = new Notification({ title, body });
+      if (onClick) n.on('click', onClick);
+      n.show();
+    },
+    confirmRestart: async (version) => {
+      const { response } = await dialog.showMessageBox({
+        type: 'info',
+        buttons: ['지금 재시작', '나중에'],
+        defaultId: 0,
+        cancelId: 1,
+        title: '업데이트 준비됨',
+        message: `Geny ${version} 을(를) 받았습니다.`,
+        detail: '지금 재시작하면 새 버전으로 설치됩니다. 나중을 고르면 앱을 껐을 때 설치됩니다.',
+      });
+      return response === 0;
+    },
+    // A Linux package install goes through Electron's relauncher, which
+    // hands NoNewPrivs to the new process; the SUID chrome-sandbox then
+    // cannot elevate and the app dies with SIGTRAP on Ubuntu 24.04. Come
+    // back up ourselves instead, from a process that still has NNP=0.
+    beforeQuitForUpdate: () => {
+      if (process.platform === 'linux' && !process.env.APPIMAGE) {
+        app.once('before-quit-for-update' as 'before-quit', () => respawnDetached(process.execPath));
+      }
+    },
+    log: (line) => logs.push('updater', line),
   });
 
   // Test seam: run a host tool exactly as the engine's host_tool_call does,
@@ -270,13 +440,64 @@ async function boot(): Promise<void> {
     },
   });
 
+  // Test seam: the screenshot→screen mapping is only exercised when the two
+  // differ, and a real capture always matches the display. Main process only
+  // (Playwright's app.evaluate), never a renderer.
+  (globalThis as unknown as Record<string, unknown>).__genyNoteCapture = (w: number, h: number): void =>
+    computerUse!.noteCapture(w, h);
+
   registerIpc({
     ipcMain,
+    system: {
+      hotkeys: {
+        list: () => ({ definitions: HOTKEYS, state: hotkeys!.state() }),
+        set: (id, accelerator) => hotkeys!.set(id as HotkeyId, accelerator),
+        reset: () => hotkeys!.reset(),
+        pause: () => hotkeys!.pause(),
+        resume: () => hotkeys!.resume(),
+      },
+      autostart: {
+        get: () => autostartActive(app),
+        set: (enabled) => {
+          const result = applyAutostart(app, enabled);
+          if (!result.applied && result.reason) logs.push('autostart', result.reason, 'warn');
+          rebuildTray?.();
+          return result;
+        },
+      },
+      logs: {
+        all: () => logs.all(),
+        text: () => logs.text(),
+        clear: () => logs.clear(),
+      },
+      capture: {
+        sources: () => listCaptureSources(),
+        get: () => store.settings.get('capture.sourceId'),
+        set: (id) => {
+          if (id) store.settings.set('capture.sourceId', id);
+          else store.settings.set('capture.sourceId', '');
+        },
+      },
+      computer: {
+        status: () => computerUse!.status(),
+        save: async (patch) => {
+          computerUse!.save(patch as Partial<ComputerUseConfig>);
+          return computerUse!.status();
+        },
+      },
+      // an explicit restart is the honest fix for anything that needs one,
+      // and it is how a changed engine setting takes hold
+      restart: () => {
+        app.relaunch();
+        app.exit(0);
+      },
+    },
     avatar,
     voice,
     knowledge,
     showQuickChat: () => quickChat?.show(),
     hideQuickChat: () => quickChat?.hide(),
+    resizeQuickChat: (height) => quickChat?.resize(height),
     shell,
     window: () => mainWindow,
     store,
@@ -288,7 +509,10 @@ async function boot(): Promise<void> {
     agentDir: (id) => resolveAgentDir(paths, id),
   });
 
-  mainWindow = createWindow();
+  // An autostart launch should land in the tray, not throw a window in front
+  // of whatever the user is doing at login.
+  const hidden = launchedHidden();
+  mainWindow = createWindow(hidden);
 
   // Quick chat + tray: the point of a desktop app is being reachable without
   // being in front of you.
@@ -298,15 +522,43 @@ async function boot(): Promise<void> {
     devServerUrl: process.env.ELECTRON_RENDERER_URL ?? null,
     rendererFile: paths2.rendererFile,
   });
-  const shortcut = quickChat.registerShortcut(
-    store.settings.get('quickChat.shortcut') || DEFAULT_SHORTCUT,
-  );
-  if (!shortcut) {
-    // another app owns the accelerator; say so instead of silently doing
-    // nothing when the user presses it
-    store.settings.set('quickChat.shortcutError', 'in use by another app');
-  } else {
-    store.settings.set('quickChat.shortcutActive', shortcut);
+  // ── global hotkeys ──────────────────────────────────────────────────────
+  // Rebindable, because CommandOrControl+Shift+G is already taken on plenty
+  // of desktops and a hardcoded accelerator fails SILENTLY when it is.
+  hotkeys = new Hotkeys({
+    shortcut: globalShortcut,
+    read: () => {
+      try {
+        return JSON.parse(store.settings.get('hotkeys') ?? '{}') as Partial<Record<HotkeyId, string>>;
+      } catch {
+        return {};
+      }
+    },
+    write: (map) => store.settings.set('hotkeys', JSON.stringify(map)),
+    fire: (id) => {
+      if (id === 'quickChat') quickChat?.toggle();
+      else if (id === 'toggleAvatar') {
+        try {
+          avatar?.toggle();
+        } catch {
+          /* no model — the hotkey must not crash the app */
+        }
+        rebuildTray?.();
+      } else if (id === 'pushToTalk') {
+        // the surface that can reach a microphone owns this
+        for (const win of surfaces()) {
+          if (win && !win.isDestroyed()) win.webContents.send('hotkey:pushToTalk');
+        }
+        quickChat?.show();
+      }
+    },
+  });
+  logs.push('hotkeys', 'registering global accelerators');
+  const bound = hotkeys.apply();
+  for (const state of bound) {
+    if (state.accelerator && !state.bound) {
+      logs.push('hotkeys', `${state.id}: '${state.accelerator}' is held by another app`, 'warn');
+    }
   }
 
   // An empty image is an INVISIBLE tray icon — and on Linux the tray is the
@@ -326,46 +578,112 @@ async function boot(): Promise<void> {
     size: trayImage.isEmpty() ? null : trayImage.getSize(),
   };
   tray.setToolTip('Geny');
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      { label: '창 열기', click: () => mainWindow?.show() },
-      { label: `퀵챗 (${shortcut ?? '단축키 사용 불가'})`, click: () => quickChat?.show() },
-      {
-        label: '아바타 표시',
-        type: 'checkbox',
-        checked: avatar?.state().visible ?? false,
-        click: (item) => {
-          try {
-            item.checked = avatar?.toggle().visible ?? false;
-          } catch {
-            // no model installed — the checkbox must not lie about it
-            item.checked = false;
-          }
+
+  // Rebuilt rather than mutated: Electron's menu items are snapshots, so a
+  // checkbox left over from the last build reports stale state.
+  rebuildTray = (): void => {
+    if (!tray || tray.isDestroyed()) return;
+    const quickChatKey = hotkeys?.state().find((h) => h.id === 'quickChat');
+    const avatarState = (() => {
+      try {
+        return avatar?.state() ?? null;
+      } catch {
+        return null;
+      }
+    })();
+    const cu = computerUse?.config();
+    const update = updater.current;
+    tray.setContextMenu(
+      Menu.buildFromTemplate([
+        { label: '창 열기', click: () => showMain() },
+        {
+          label: quickChatKey?.bound
+            ? `퀵챗 (${quickChatKey.accelerator})`
+            : '퀵챗 (단축키 사용 불가)',
+          click: () => quickChat?.show(),
         },
-      },
-      { type: 'separator' },
-      { label: '데이터 폴더', click: () => void shell.openPath(resolved.dataRoot) },
-      { type: 'separator' },
-      { label: '종료', click: () => app.quit() },
-    ]),
-  );
+        {
+          label: '아바타 표시',
+          type: 'checkbox',
+          enabled: avatarState?.available ?? false,
+          checked: avatarState?.visible ?? false,
+          click: (item) => {
+            try {
+              item.checked = avatar?.toggle().visible ?? false;
+            } catch {
+              // no model installed — the checkbox must not lie about it
+              item.checked = false;
+            }
+          },
+        },
+        { type: 'separator' },
+        {
+          label: '컴퓨터 조작 허용',
+          type: 'checkbox',
+          checked: cu?.enabled ?? false,
+          // a panic switch: whatever the agent is in the middle of, this
+          // stops it being able to type
+          click: (item) => {
+            computerUse?.save({ enabled: item.checked });
+          },
+        },
+        {
+          label: '로그인 시 자동 시작',
+          type: 'checkbox',
+          checked: autostartActive(app),
+          click: (item) => {
+            const result = applyAutostart(app, item.checked);
+            item.checked = result.enabled;
+            if (!result.applied && result.reason) {
+              logs.push('autostart', result.reason, 'warn');
+              void dialog.showMessageBox({ type: 'warning', message: '자동 시작을 설정하지 못했습니다', detail: result.reason });
+            }
+          },
+        },
+        { type: 'separator' },
+        {
+          label:
+            update.status === 'ready'
+              ? `업데이트 설치하고 재시작 (v${update.version})`
+              : update.status === 'downloading'
+                ? `업데이트 받는 중 ${update.percent ?? 0}%`
+                : '업데이트 확인',
+          click: () => {
+            if (update.status === 'ready') void updater.installNow();
+            else void updater.check();
+          },
+        },
+        { label: '데이터 폴더', click: () => void shell.openPath(resolved.dataRoot) },
+        { type: 'separator' },
+        { label: '종료', click: () => app.quit() },
+      ]),
+    );
+  };
+  rebuildTray();
+  updaterRef = updater;
 
   // the overlay comes back where the user left it, showing or not
   avatar.restore();
 
   // start the engine eagerly: first-token latency is the whole UX
   void engine.start();
+  // and start looking for updates, on the schedule rather than on demand
+  updater.start();
+  logs.push('updater', updater.current.channel ?? 'idle');
 }
 
-void app.whenReady().then(boot);
+if (singleInstance) void app.whenReady().then(boot);
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow();
+  if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow(false);
+  else showMain();
 });
 app.on('before-quit', () => {
+  hotkeys?.dispose();
+  updaterRef?.stop();
   browserHostRef?.destroyAll();
   avatar?.destroy();
   quickChat?.destroy();

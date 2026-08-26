@@ -1,6 +1,8 @@
 /** The only bridge. Shapes must match @shared/api-types exactly. */
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AgentRecord, AvatarState, EngineStatus, GenyApi } from '@shared/api-types';
+import type {
+  AgentRecord, AvatarState, EngineStatus, GenyApi, LogLine, UpdateState,
+} from '@shared/api-types';
 import type { SpokenAudio } from '@shared/voice';
 import type { SidecarEvent } from '@shared/sidecar-protocol';
 
@@ -16,6 +18,7 @@ const api: GenyApi = {
     openPath: (p) => ipcRenderer.invoke('app:openPath', p),
     quickChat: () => ipcRenderer.invoke('app:quickChat'),
     hideQuickChat: () => ipcRenderer.invoke('app:hideQuickChat'),
+    resizeQuickChat: (height) => ipcRenderer.send('app:resizeQuickChat', height),
   },
   engine: {
     status: () => ipcRenderer.invoke('engine:status'),
@@ -53,6 +56,7 @@ const api: GenyApi = {
     toggle: () => ipcRenderer.invoke('avatar:toggle'),
     setClickThrough: (enabled) => ipcRenderer.invoke('avatar:setClickThrough', enabled),
     setScale: (scale) => ipcRenderer.invoke('avatar:setScale', scale),
+    resetPosition: () => ipcRenderer.invoke('avatar:resetPosition'),
     scaffold: (modelId) => ipcRenderer.invoke('avatar:scaffold', modelId),
     fetchCubismCore: (modelId) => ipcRenderer.invoke('avatar:fetchCubismCore', modelId),
     openFolder: () => ipcRenderer.invoke('avatar:openFolder'),
@@ -80,6 +84,7 @@ const api: GenyApi = {
     detect: () => ipcRenderer.invoke('cli:detect'),
   },
   mcp: {
+    test: (input) => ipcRenderer.invoke('mcp:test', input),
     list: () => ipcRenderer.invoke('mcp:list'),
     add: (input) => ipcRenderer.invoke('mcp:add', input),
     remove: (id) => ipcRenderer.invoke('mcp:remove', id),
@@ -93,6 +98,33 @@ const api: GenyApi = {
   update: {
     check: () => ipcRenderer.invoke('update:check'),
     state: () => ipcRenderer.invoke('update:state'),
+    setEnabled: (enabled) => ipcRenderer.invoke('update:setEnabled', enabled),
+    installNow: () => ipcRenderer.invoke('update:installNow'),
+    onState: (cb) => subscribe<UpdateState>('update:state', cb),
+  },
+  hotkeys: {
+    list: () => ipcRenderer.invoke('hotkeys:list'),
+    set: (id, accelerator) => ipcRenderer.invoke('hotkeys:set', id, accelerator),
+    reset: () => ipcRenderer.invoke('hotkeys:reset'),
+    pause: () => ipcRenderer.invoke('hotkeys:pause'),
+    resume: () => ipcRenderer.invoke('hotkeys:resume'),
+    onPushToTalk: (cb) => subscribe<void>('hotkey:pushToTalk', () => cb()),
+  },
+  system: {
+    autostart: () => ipcRenderer.invoke('system:autostart'),
+    setAutostart: (enabled) => ipcRenderer.invoke('system:setAutostart', enabled),
+    logs: () => ipcRenderer.invoke('system:logs'),
+    logText: () => ipcRenderer.invoke('system:logText'),
+    clearLogs: () => ipcRenderer.invoke('system:clearLogs'),
+    onLog: (cb) => subscribe<LogLine>('system:log', cb),
+    captureSources: () => ipcRenderer.invoke('system:captureSources'),
+    captureSource: () => ipcRenderer.invoke('system:captureSource'),
+    setCaptureSource: (id) => ipcRenderer.invoke('system:setCaptureSource', id),
+    restart: () => ipcRenderer.invoke('system:restart'),
+  },
+  computer: {
+    status: () => ipcRenderer.invoke('computer:status'),
+    save: (patch) => ipcRenderer.invoke('computer:save', patch),
   },
   onboarding: {
     done: () => ipcRenderer.invoke('onboarding:done'),

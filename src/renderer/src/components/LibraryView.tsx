@@ -56,6 +56,10 @@ function McpSection({ agent }: { agent: { id: string; name: string } | null }): 
   const [servers, setServers] = useState<McpServerRecord[]>([]);
   const [enabled, setEnabled] = useState<Set<string>>(new Set());
   const [draft, setDraft] = useState({ name: '', command: '', args: '' });
+  const [probe, setProbe] = useState<{
+    state: 'idle' | 'running' | 'done';
+    result?: Awaited<ReturnType<typeof window.geny.mcp.test>>;
+  }>({ state: 'idle' });
   const [busy, setBusy] = useState(false);
 
   const refresh = async (): Promise<void> => {
@@ -79,6 +83,7 @@ function McpSection({ agent }: { agent: { id: string; name: string } | null }): 
         args: draft.args.trim() ? draft.args.trim().split(/\s+/) : [],
       });
       setDraft({ name: '', command: '', args: '' });
+      setProbe({ state: 'idle' });
       await refresh();
     } finally {
       setBusy(false);
@@ -119,6 +124,27 @@ function McpSection({ agent }: { agent: { id: string; name: string } | null }): 
           />
           <button
             type="button"
+            disabled={busy || !draft.command.trim()}
+            className="rounded border border-line px-2 py-1 disabled:opacity-40"
+            onClick={() => {
+              setProbe({ state: 'running' });
+              void window.geny.mcp
+                .test({
+                  command: draft.command,
+                  args: draft.args.split(/\s+/).filter(Boolean),
+                })
+                .then((r) => setProbe({ state: 'done', result: r }))
+                .catch((err: unknown) =>
+                  setProbe({
+                    state: 'done',
+                    result: { ok: false, tools: [], error: err instanceof Error ? err.message : String(err) },
+                  }));
+            }}
+          >
+            연결 시험
+          </button>
+          <button
+            type="button"
             disabled={busy}
             className="rounded border border-accent/60 px-2 py-1 text-accent disabled:opacity-40"
             onClick={() => void add()}
@@ -126,6 +152,32 @@ function McpSection({ agent }: { agent: { id: string; name: string } | null }): 
             추가
           </button>
         </div>
+        {/* Testing before saving is the difference between a typo you fix now
+            and a tool that is silently missing from the agent later. */}
+        {probe.state === 'running' && <p className="mt-1 text-[11px] text-dim">서버를 띄워 보는 중…</p>}
+        {probe.state === 'done' && probe.result && (
+          <p className={`mt-1 text-[11px] ${probe.result.ok ? 'text-emerald-300' : 'text-red-300'}`}>
+            {probe.result.ok ? (
+              <>
+                연결됨 — {probe.result.server ?? '이름 없음'}
+                {probe.result.version ? ` v${probe.result.version}` : ''} · 도구{' '}
+                {probe.result.tools.length}종
+                {probe.result.tools.length > 0 && (
+                  <span className="text-dim">
+                    {' '}
+                    ({probe.result.tools.slice(0, 6).map((t) => t.name).join(', ')}
+                    {probe.result.tools.length > 6 ? ' …' : ''})
+                  </span>
+                )}
+              </>
+            ) : (
+              <>
+                {probe.result.error}
+                {probe.result.stderr && <span className="block text-dim">{probe.result.stderr}</span>}
+              </>
+            )}
+          </p>
+        )}
         <p className="mt-1 text-[11px] text-dim">
           서버는 엔진이 직접 띄웁니다. 에이전트에 켜면 다음 턴에 새로 연결됩니다.
         </p>

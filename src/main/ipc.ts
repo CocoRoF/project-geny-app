@@ -16,6 +16,7 @@ import type { AvatarController } from './avatar';
 import type { VoiceService } from './voice/service';
 import type { VoiceConfig } from '@shared/voice';
 import { knowledgeDir, type KnowledgeStore } from './knowledge';
+import { probeMcpServer } from './mcp-probe';
 import { readMemory, readMemoryNote, readTranscript } from './memory-browser';
 import { listPersonas, personaDir, savePersona } from './personas';
 import type { EngineService } from './engine-service';
@@ -28,6 +29,7 @@ export const CHANNELS = {
   appOpenPath: 'app:openPath',
   appQuickChat: 'app:quickChat',
   appHideQuickChat: 'app:hideQuickChat',
+  appResizeQuickChat: 'app:resizeQuickChat',
   engineStatus: 'engine:status',
   engineStart: 'engine:start',
   engineStatusEvent: 'engine:statusEvent',
@@ -55,6 +57,7 @@ export const CHANNELS = {
   avatarToggle: 'avatar:toggle',
   avatarClickThrough: 'avatar:setClickThrough',
   avatarScale: 'avatar:setScale',
+  avatarReset: 'avatar:resetPosition',
   avatarScaffold: 'avatar:scaffold',
   avatarFetchCore: 'avatar:fetchCubismCore',
   avatarFolder: 'avatar:openFolder',
@@ -73,6 +76,7 @@ export const CHANNELS = {
   secretsBackend: 'secrets:backend',
   cliDetect: 'cli:detect',
   mcpList: 'mcp:list',
+  mcpTest: 'mcp:test',
   mcpAdd: 'mcp:add',
   mcpRemove: 'mcp:remove',
   mcpSetEnabled: 'mcp:setEnabled',
@@ -84,6 +88,24 @@ export const CHANNELS = {
   filesReveal: 'files:reveal',
   updateCheck: 'update:check',
   updateState: 'update:state',
+  updateSetEnabled: 'update:setEnabled',
+  updateInstallNow: 'update:installNow',
+  hotkeysList: 'hotkeys:list',
+  hotkeysSet: 'hotkeys:set',
+  hotkeysReset: 'hotkeys:reset',
+  hotkeysPause: 'hotkeys:pause',
+  hotkeysResume: 'hotkeys:resume',
+  systemAutostart: 'system:autostart',
+  systemSetAutostart: 'system:setAutostart',
+  systemLogs: 'system:logs',
+  systemLogText: 'system:logText',
+  systemClearLogs: 'system:clearLogs',
+  systemCaptureSources: 'system:captureSources',
+  systemCaptureSource: 'system:captureSource',
+  systemSetCaptureSource: 'system:setCaptureSource',
+  systemRestart: 'system:restart',
+  computerStatus: 'computer:status',
+  computerSave: 'computer:save',
   onboardingDone: 'onboarding:done',
   onboardingComplete: 'onboarding:complete',
   chatHistory: 'chat:history',
@@ -94,12 +116,39 @@ export const CHANNELS = {
   chatEvent: 'chat:event',
 } as const;
 
+export interface SystemDeps {
+  hotkeys: {
+    list(): { definitions: unknown[]; state: unknown[] };
+    set(id: string, accelerator: string): unknown[];
+    reset(): unknown[];
+    pause(): void;
+    resume(): unknown[];
+  };
+  autostart: {
+    get(): boolean;
+    set(enabled: boolean): { enabled: boolean; applied: boolean; reason?: string };
+  };
+  logs: { all(): unknown[]; text(): string; clear(): void };
+  capture: {
+    sources(): Promise<unknown[]>;
+    get(): string | undefined;
+    set(id: string | null): void;
+  };
+  computer: {
+    status(): Promise<unknown>;
+    save(patch: Record<string, unknown>): Promise<unknown>;
+  };
+  restart(): void;
+}
+
 export interface IpcDeps {
+  system: SystemDeps;
   knowledge: KnowledgeStore;
   avatar: AvatarController;
   voice: VoiceService;
   showQuickChat(): void;
   hideQuickChat(): void;
+  resizeQuickChat(height: number): void;
   ipcMain: IpcMain;
   shell: Pick<Shell, 'openPath'>;
   window(): BrowserWindow | null;
@@ -129,6 +178,9 @@ export function registerIpc(deps: IpcDeps): void {
   });
   ipcMain.handle(CHANNELS.appHideQuickChat, () => {
     deps.hideQuickChat();
+  });
+  ipcMain.on(CHANNELS.appResizeQuickChat, (_e, height: number) => {
+    deps.resizeQuickChat(height);
   });
 
   ipcMain.handle(CHANNELS.voiceConfig, () => deps.voice.config());
@@ -160,6 +212,7 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNELS.avatarClickThrough, (_e, enabled: boolean) =>
     deps.avatar.setClickThrough(enabled));
   ipcMain.handle(CHANNELS.avatarScale, (_e, scale: number) => deps.avatar.setScale(scale));
+  ipcMain.handle(CHANNELS.avatarReset, () => deps.avatar.resetPosition());
   ipcMain.handle(CHANNELS.avatarScaffold, (_e, modelId: string) => {
     const result = deps.avatar.scaffold(modelId);
     return { ...result, models: deps.avatar.models(), state: deps.avatar.state() };
@@ -171,6 +224,36 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNELS.avatarFolder, async () => {
     await deps.shell.openPath(deps.avatar.folder());
   });
+
+  const sys = deps.system;
+  ipcMain.handle(CHANNELS.hotkeysList, () => sys.hotkeys.list());
+  ipcMain.handle(CHANNELS.hotkeysSet, (_e, id: string, accelerator: string) =>
+    sys.hotkeys.set(id, accelerator));
+  ipcMain.handle(CHANNELS.hotkeysReset, () => sys.hotkeys.reset());
+  ipcMain.handle(CHANNELS.hotkeysPause, () => {
+    sys.hotkeys.pause();
+  });
+  ipcMain.handle(CHANNELS.hotkeysResume, () => sys.hotkeys.resume());
+
+  ipcMain.handle(CHANNELS.systemAutostart, () => sys.autostart.get());
+  ipcMain.handle(CHANNELS.systemSetAutostart, (_e, enabled: boolean) => sys.autostart.set(enabled));
+  ipcMain.handle(CHANNELS.systemLogs, () => sys.logs.all());
+  ipcMain.handle(CHANNELS.systemLogText, () => sys.logs.text());
+  ipcMain.handle(CHANNELS.systemClearLogs, () => {
+    sys.logs.clear();
+  });
+  ipcMain.handle(CHANNELS.systemCaptureSources, () => sys.capture.sources());
+  ipcMain.handle(CHANNELS.systemCaptureSource, () => sys.capture.get());
+  ipcMain.handle(CHANNELS.systemSetCaptureSource, (_e, id: string | null) => {
+    sys.capture.set(id);
+  });
+  ipcMain.handle(CHANNELS.systemRestart, () => {
+    sys.restart();
+  });
+
+  ipcMain.handle(CHANNELS.computerStatus, () => sys.computer.status());
+  ipcMain.handle(CHANNELS.computerSave, (_e, patch: Record<string, unknown>) =>
+    sys.computer.save(patch));
 
   ipcMain.handle(CHANNELS.engineStatus, () => deps.engine.getStatus());
   ipcMain.handle(CHANNELS.engineStart, () => deps.engine.start());
@@ -293,6 +376,13 @@ export function registerIpc(deps: IpcDeps): void {
     return cliCache;
   });
 
+  // Try it before it is stored: a mistyped command otherwise reaches the
+  // agent as a tool that is simply, silently, not there.
+  ipcMain.handle(
+    CHANNELS.mcpTest,
+    (_e, input: { command: string; args?: string[]; env?: Record<string, string> }) =>
+      probeMcpServer(input),
+  );
   ipcMain.handle(CHANNELS.mcpList, () => deps.store.mcp.list());
   ipcMain.handle(
     CHANNELS.mcpAdd,
@@ -341,6 +431,8 @@ export function registerIpc(deps: IpcDeps): void {
     await deps.shell.openPath(path);
   });
 
+  ipcMain.handle(CHANNELS.updateSetEnabled, (_e, enabled: boolean) => deps.updater.setEnabled(enabled));
+  ipcMain.handle(CHANNELS.updateInstallNow, () => deps.updater.installNow());
   ipcMain.handle(CHANNELS.updateCheck, () => deps.updater.check());
   ipcMain.handle(CHANNELS.updateState, () => deps.updater.current);
   ipcMain.handle(CHANNELS.onboardingDone, () => deps.store.settings.get('onboarding.done') === '1');

@@ -79,11 +79,55 @@ export interface CliInfo {
   error?: string;
 }
 
+export interface HotkeyDefinitionInfo {
+  id: string;
+  label: string;
+  hint: string;
+  default: string;
+}
+
+export interface HotkeyStateInfo {
+  id: string;
+  accelerator: string;
+  /** false = the OS refused it, almost always another app holding it */
+  bound: boolean;
+}
+
+export interface ComputerUseStatusInfo {
+  enabled: boolean;
+  input: boolean;
+  apps: boolean;
+  clipboard: boolean;
+  mode: 'ask' | 'auto';
+  backend: string;
+  backendAvailable: boolean;
+  backendReason?: string;
+  sessionGrants: string[];
+}
+
+export interface LogLine {
+  at: number;
+  level: 'info' | 'warn' | 'error';
+  source: string;
+  text: string;
+}
+
+export interface CaptureSource {
+  id: string;
+  name: string;
+  kind: 'screen' | 'window';
+}
+
 export interface UpdateState {
   status: 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'unsupported' | 'error';
   version?: string;
   percent?: number;
   error?: string;
+  /** the user's auto-update setting, echoed so the UI never asks twice */
+  enabled?: boolean;
+  /** what this platform can actually do, in words */
+  channel?: string;
+  lastCheckedAt?: number;
 }
 
 export interface EngineStatus {
@@ -172,6 +216,8 @@ export interface GenyApi {
     /** summon the quick-chat strip (same thing the global shortcut does) */
     quickChat(): Promise<void>;
     hideQuickChat(): Promise<void>;
+    /** grow the strip to fit its content (renderer → main, fire and forget) */
+    resizeQuickChat(height: number): void;
   };
   engine: {
     status(): Promise<EngineStatus>;
@@ -218,6 +264,8 @@ export interface GenyApi {
     /** click-through off = the overlay accepts the mouse and can be dragged */
     setClickThrough(enabled: boolean): Promise<AvatarState>;
     setScale(scale: number): Promise<AvatarState>;
+    /** back to the default corner, clickable again */
+    resetPosition(): Promise<AvatarState>;
     /** write a display page for a Live2D/Spine folder so the overlay can
      *  show it once the user supplies the runtime */
     scaffold(modelId: string): Promise<{ created: boolean; page: string; installed: string[]; models: AvatarModel[]; state: AvatarState }>;
@@ -262,6 +310,16 @@ export interface GenyApi {
     detect(): Promise<CliInfo>;
   };
   mcp: {
+    /** run the server and speak MCP to it — before saving anything */
+    test(input: { command: string; args?: string[]; env?: Record<string, string> }): Promise<{
+      ok: boolean;
+      server?: string;
+      version?: string;
+      protocolVersion?: string;
+      tools: Array<{ name: string; description?: string }>;
+      error?: string;
+      stderr?: string;
+    }>;
     list(): Promise<McpServerRecord[]>;
     add(input: { name: string; command: string; args?: string[]; env?: Record<string, string> }): Promise<McpServerRecord>;
     remove(id: string): Promise<void>;
@@ -276,6 +334,36 @@ export interface GenyApi {
   update: {
     check(): Promise<UpdateState>;
     state(): Promise<UpdateState>;
+    setEnabled(enabled: boolean): Promise<UpdateState>;
+    /** install a download that is already sitting there, and restart */
+    installNow(): Promise<void>;
+    onState(cb: (s: UpdateState) => void): () => void;
+  };
+  hotkeys: {
+    list(): Promise<{ definitions: HotkeyDefinitionInfo[]; state: HotkeyStateInfo[] }>;
+    set(id: string, accelerator: string): Promise<HotkeyStateInfo[]>;
+    reset(): Promise<HotkeyStateInfo[]>;
+    /** release every accelerator so the user can press one to record it */
+    pause(): Promise<void>;
+    resume(): Promise<HotkeyStateInfo[]>;
+    /** fired when a global hotkey the renderer cares about was pressed */
+    onPushToTalk(cb: () => void): () => void;
+  };
+  system: {
+    autostart(): Promise<boolean>;
+    setAutostart(enabled: boolean): Promise<{ enabled: boolean; applied: boolean; reason?: string }>;
+    logs(): Promise<LogLine[]>;
+    logText(): Promise<string>;
+    clearLogs(): Promise<void>;
+    onLog(cb: (line: LogLine) => void): () => void;
+    captureSources(): Promise<CaptureSource[]>;
+    captureSource(): Promise<string | undefined>;
+    setCaptureSource(id: string | null): Promise<void>;
+    restart(): Promise<void>;
+  };
+  computer: {
+    status(): Promise<ComputerUseStatusInfo>;
+    save(patch: Partial<Omit<ComputerUseStatusInfo, 'backend' | 'backendAvailable' | 'backendReason' | 'sessionGrants'>>): Promise<ComputerUseStatusInfo>;
   };
   onboarding: {
     /** false until the user has finished first-run setup */

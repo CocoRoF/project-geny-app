@@ -118,6 +118,13 @@ linux:
       StartupWMClass: Geny
 
 deb:
+  # Input synthesis has no native module — it shells out to the platform's own
+  # tooling. On Linux that is xdotool (X11) or ydotool (Wayland), so the
+  # package recommends them rather than requiring them: computer use is
+  # opt-in, and the app reports the missing tool by name if it is not there.
+  recommends:
+    - xdotool
+    - ydotool
   depends:
     - libgtk-3-0
     - libnotify4

@@ -52,7 +52,19 @@ export interface VoiceDeps {
   transcribe(input: { audio: Buffer; mime: string; filename?: string }): Promise<string>;
 }
 
+export interface ComputerDeps {
+  type(text: string): Promise<{ typed: number }>;
+  key(combo: string): Promise<{ combo: string }>;
+  click(x: number, y: number, button: 'left' | 'right' | 'middle'): Promise<{ x: number; y: number }>;
+  move(x: number, y: number): Promise<{ x: number; y: number }>;
+  scroll(amount: number): Promise<{ amount: number }>;
+  openApp(target: string): Promise<{ opened: string }>;
+  /** tell the mapper what the model is looking at */
+  noteCapture(width: number, height: number): void;
+}
+
 export interface HostToolDeps {
+  computer: ComputerDeps;
   browser: BrowserDeps;
   knowledge: KnowledgeDeps;
   voice: VoiceDeps;
@@ -79,6 +91,81 @@ const AUDIO_MIME: Record<string, string> = {
 
 export function buildHostTools(deps: HostToolDeps): HostTool[] {
   return [
+    {
+      spec: {
+        name: 'ComputerType',
+        description:
+          'Type text into whatever window currently has focus, as if the user typed it. ' +
+          'Requires computer use to be enabled; the user may be asked to approve.',
+        schema: {
+          type: 'object',
+          properties: { text: { type: 'string', description: 'the text to type' } },
+          required: ['text'],
+        },
+      },
+      handle: (args) => deps.computer.type(str(args.text)),
+    },
+    {
+      spec: {
+        name: 'ComputerKey',
+        description:
+          'Press a key combination in the focused window, e.g. "ctrl+c", "cmd+shift+4", "Return".',
+        schema: {
+          type: 'object',
+          properties: { combo: { type: 'string', description: 'e.g. ctrl+s' } },
+          required: ['combo'],
+        },
+      },
+      handle: (args) => deps.computer.key(str(args.combo)),
+    },
+    {
+      spec: {
+        name: 'ComputerClick',
+        description:
+          'Click at a point. Coordinates are in the pixel space of the most recent ScreenCapture ' +
+          'image, so take a screenshot first and click what you see in it.',
+        schema: {
+          type: 'object',
+          properties: {
+            x: { type: 'number' },
+            y: { type: 'number' },
+            button: { type: 'string', enum: ['left', 'right', 'middle'] },
+          },
+          required: ['x', 'y'],
+        },
+      },
+      handle: (args) =>
+        deps.computer.click(
+          Number(args.x),
+          Number(args.y),
+          (str(args.button, 'left') as 'left' | 'right' | 'middle'),
+        ),
+    },
+    {
+      spec: {
+        name: 'ComputerScroll',
+        description: 'Scroll the focused window. Positive scrolls down, negative up.',
+        schema: {
+          type: 'object',
+          properties: { amount: { type: 'number', description: 'notches; 3 is about one wheel turn' } },
+          required: ['amount'],
+        },
+      },
+      handle: (args) => deps.computer.scroll(Number(args.amount)),
+    },
+    {
+      spec: {
+        name: 'LaunchApp',
+        description:
+          'Open an application, file, folder or URL with the system default handler.',
+        schema: {
+          type: 'object',
+          properties: { target: { type: 'string', description: 'app name, path or URL' } },
+          required: ['target'],
+        },
+      },
+      handle: (args) => deps.computer.openApp(str(args.target)),
+    },
     {
       spec: {
         name: 'Speak',
@@ -145,6 +232,9 @@ export function buildHostTools(deps: HostToolDeps): HostTool[] {
       },
       handle: async (_args, ctx) => {
         const shot = await deps.captureScreen();
+        // remember the capture's pixel space: the model will click in THESE
+        // coordinates, and the screen's may be a different size entirely
+        deps.computer.noteCapture(shot.width, shot.height);
         // hand the agent a path, not a megabyte of base64 in the transcript
         const file = join(ctx.agentDir, 'artifacts', `screen-${Date.now()}.png`);
         await writeFile(file, Buffer.from(shot.base64, 'base64'));

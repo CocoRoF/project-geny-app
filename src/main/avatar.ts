@@ -207,6 +207,20 @@ export class AvatarController {
     return this.overlay?.visible ? this.hide() : this.show();
   }
 
+  /** Move the overlay back to its default corner, and make it clickable
+   *  again — the recovery for an avatar that cannot be found or reached. */
+  resetPosition(): AvatarState {
+    const overlay = this.ensureWindow();
+    const bounds = overlay.resetPosition();
+    this.deps.settings.set(KEYS.bounds, JSON.stringify(bounds));
+    // an unreachable overlay is usually unreachable because it ignores the
+    // mouse, so recovery hands input back too
+    overlay.setClickThrough(false);
+    this.deps.settings.set(KEYS.clickThrough, 'false');
+    if (!overlay.visible) overlay.show();
+    return this.changed();
+  }
+
   setClickThrough(enabled: boolean): AvatarState {
     this.ensureWindow().setClickThrough(enabled);
     this.deps.settings.set(KEYS.clickThrough, String(enabled));

@@ -1,5 +1,5 @@
 import type { JSX } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useApp } from '../store/app-store';
 
 /**
@@ -19,6 +19,7 @@ export function QuickChatSurface(): JSX.Element {
   const pushUser = useApp((s) => s.pushUser);
   const beginTurn = useApp((s) => s.beginTurn);
   const [draft, setDraft] = useState('');
+  const shellRef = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
 
   const agent = agents.find((a) => a.id === activeId) ?? agents[0] ?? null;
@@ -45,8 +46,27 @@ export function QuickChatSurface(): JSX.Element {
     beginTurn(agent.id, turnId);
   };
 
+  // Grow the WINDOW to fit the answer, rather than scrolling inside a strip
+  // that was already tall before anything was said. Measured after paint so
+  // the height is the real one, and only reported when it changes.
+  const lastSent = useRef(0);
+  useLayoutEffect(() => {
+    const el = shellRef.current;
+    if (!el) return undefined;
+    const report = (): void => {
+      const height = Math.ceil(el.scrollHeight);
+      if (Math.abs(height - lastSent.current) < 6) return;
+      lastSent.current = height;
+      window.geny.app.resizeQuickChat(height);
+    };
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(el);
+    return () => observer.disconnect();
+  });
+
   return (
-    <div className="flex h-full flex-col bg-bg/95">
+    <div ref={shellRef} className="flex min-h-0 flex-col bg-bg/95">
       <div className="flex items-center gap-2 border-b border-line px-3 py-1.5 text-[11px]">
         <span className="font-semibold">Geny</span>
         {agents.length > 1 ? (
@@ -67,7 +87,7 @@ export function QuickChatSurface(): JSX.Element {
         <span className="ml-auto text-dim">Esc 닫기</span>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2 text-[13px] leading-relaxed">
+      <div className="max-h-[420px] min-h-0 flex-1 overflow-y-auto px-3 py-2 text-[13px] leading-relaxed empty:hidden">
         {!agent && <p className="text-dim">먼저 본 창에서 에이전트를 하나 만드세요.</p>}
         {last?.role === 'assistant' && (
           <>

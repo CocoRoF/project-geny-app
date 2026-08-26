@@ -10,7 +10,7 @@
  * one implementation and the two windows cannot drift apart.
  */
 import { join } from 'node:path';
-import { BrowserWindow, globalShortcut, screen } from 'electron';
+import { BrowserWindow, screen } from 'electron';
 
 export interface QuickChatDeps {
   preload: string;
@@ -21,19 +21,25 @@ export interface QuickChatDeps {
 }
 
 const WIDTH = 620;
-const HEIGHT = 420;
+/** Opens as a single input row and grows with the answer — a strip that
+ *  starts 420px tall is a window, and a window is what this exists to avoid. */
+const MIN_HEIGHT = 92;
+const MAX_HEIGHT = 620;
+/** Kept for the settings default; the binding itself lives in hotkeys.ts,
+ *  which can rebind it and report when the OS refuses. */
 export const DEFAULT_SHORTCUT = 'CommandOrControl+Shift+G';
 
 export class QuickChat {
   private win: BrowserWindow | null = null;
-  private registered: string | null = null;
 
   constructor(private readonly deps: QuickChatDeps) {}
 
   private create(): BrowserWindow {
     const win = new BrowserWindow({
       width: WIDTH,
-      height: HEIGHT,
+      height: MIN_HEIGHT,
+      minHeight: MIN_HEIGHT,
+      maxHeight: MAX_HEIGHT,
       show: false,
       frame: false,
       resizable: true,
@@ -59,6 +65,21 @@ export class QuickChat {
     return win;
   }
 
+  /**
+   * Grow or shrink to fit the content.
+   *
+   * Called by the renderer as the answer streams in. The top edge stays put
+   * so the text the user is reading does not slide up the screen.
+   */
+  resize(height: number): void {
+    const win = this.window();
+    if (!win) return;
+    const next = Math.round(Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, height)));
+    const bounds = win.getBounds();
+    if (Math.abs(bounds.height - next) < 4) return;
+    win.setBounds({ ...bounds, height: next }, false);
+  }
+
   toggle(): void {
     if (this.win && this.win.isVisible()) {
       this.hide();
@@ -78,7 +99,9 @@ export class QuickChat {
       x: Math.round(area.x + (area.width - WIDTH) / 2),
       y: Math.round(area.y + area.height * 0.18),
       width: WIDTH,
-      height: HEIGHT,
+      // every summon starts as a single input row again, whatever the last
+      // answer grew it to
+      height: MIN_HEIGHT,
     });
     win.show();
     win.focus();
@@ -89,32 +112,7 @@ export class QuickChat {
     if (this.win && !this.win.isDestroyed() && this.win.isVisible()) this.win.hide();
   }
 
-  /** Returns the accelerator actually taken, or null when the OS refused it
-   *  (another app owns it) — the caller shows that rather than pretending. */
-  registerShortcut(accelerator: string = DEFAULT_SHORTCUT): string | null {
-    this.unregisterShortcut();
-    try {
-      const ok = globalShortcut.register(accelerator, () => this.toggle());
-      if (!ok) return null;
-      this.registered = accelerator;
-      return accelerator;
-    } catch {
-      return null;
-    }
-  }
-
-  unregisterShortcut(): void {
-    if (!this.registered) return;
-    try {
-      globalShortcut.unregister(this.registered);
-    } catch {
-      /* already gone */
-    }
-    this.registered = null;
-  }
-
   destroy(): void {
-    this.unregisterShortcut();
     if (this.win && !this.win.isDestroyed()) this.win.destroy();
     this.win = null;
   }

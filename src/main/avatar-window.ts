@@ -59,8 +59,31 @@ export class AvatarWindow {
     };
   }
 
+  /**
+   * Keep remembered bounds on a display that still exists.
+   *
+   * Unplug the monitor the avatar was on and the saved position points into
+   * nothing: the window opens, reports itself visible, and is nowhere on
+   * screen. There is no way back from inside the app, because the app cannot
+   * be clicked. So the position is validated every time it is used.
+   */
+  private clamp(bounds: AvatarBounds): AvatarBounds {
+    const displays = screen.getAllDisplays();
+    const onScreen = displays.some((d) => {
+      const a = d.workArea;
+      // a sliver counts: the user can drag it back from a visible corner
+      return (
+        bounds.x + bounds.width > a.x + 40 &&
+        bounds.x < a.x + a.width - 40 &&
+        bounds.y + bounds.height > a.y &&
+        bounds.y < a.y + a.height - 40
+      );
+    });
+    return onScreen ? bounds : { ...this.defaultBounds(), width: bounds.width, height: bounds.height };
+  }
+
   private create(): BrowserWindow {
-    const bounds = this.deps.savedBounds ?? this.defaultBounds();
+    const bounds = this.clamp(this.deps.savedBounds ?? this.defaultBounds());
     const win = new BrowserWindow({
       ...bounds,
       show: false,
@@ -109,7 +132,17 @@ export class AvatarWindow {
 
   show(): void {
     if (!this.win || this.win.isDestroyed()) this.win = this.create();
+    else this.win.setBounds(this.clamp(this.win.getBounds()));
     this.win.showInactive();
+  }
+
+  /** Put it back where it started — the way out of "I cannot find it". */
+  resetPosition(): AvatarBounds {
+    const bounds = this.defaultBounds();
+    const win = this.window();
+    if (win) win.setBounds(bounds);
+    this.deps.onBoundsChanged?.(bounds);
+    return bounds;
   }
 
   hide(): void {

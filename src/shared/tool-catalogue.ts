@@ -136,6 +136,18 @@ export const TOOL_GROUPS: ToolGroup[] = [
     ],
   },
   {
+    id: 'computer',
+    label: '컴퓨터 조작',
+    hint: '초점이 있는 창에 실제로 입력합니다 — 기본 꺼짐, 켜도 작업마다 물어봅니다',
+    tools: [
+      { name: 'ComputerType', label: '입력', risky: true },
+      { name: 'ComputerKey', label: '단축키', risky: true },
+      { name: 'ComputerClick', label: '클릭', risky: true },
+      { name: 'ComputerScroll', label: '스크롤', risky: true },
+      { name: 'LaunchApp', label: '앱 열기', risky: true },
+    ],
+  },
+  {
     id: 'voice',
     label: '음성',
     hint: '설정한 음성 서비스로 말하고 듣습니다 — 앱은 직접 서빙하지 않고 호출만 합니다',
@@ -148,7 +160,8 @@ export const TOOL_GROUPS: ToolGroup[] = [
 
 /** Names the desktop side implements — they are not engine built-ins. */
 export const HOST_TOOL_NAMES = new Set(
-  TOOL_GROUPS.filter((g) => ['desktop', 'browser', 'knowledge', 'voice'].includes(g.id)).flatMap((g) =>
+  TOOL_GROUPS.filter((g) =>
+    ['desktop', 'browser', 'knowledge', 'voice', 'computer'].includes(g.id)).flatMap((g) =>
     g.tools.map((t) => t.name),
   ),
 );

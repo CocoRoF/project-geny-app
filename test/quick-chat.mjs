@@ -48,7 +48,29 @@ console.log(sharesAgent ? '✓ shares agents with the main window' : '✗ strip 
 const compact = !body.includes('라이브러리');
 console.log(compact ? '✓ compact shell (no activity rail)' : '✗ strip rendered the full app');
 
+// It opens as a strip and grows with the answer — a window that starts tall
+// is the thing this surface exists to avoid.
+const opened = await app.evaluate(({ BrowserWindow }) => {
+  const w = BrowserWindow.getAllWindows().find((x) => x.webContents.getURL().includes('surface=quick'));
+  return w ? w.getBounds() : null;
+});
+const compactHeight = Boolean(opened && opened.height <= 160);
+console.log(compactHeight ? `✓ opens as a strip (${opened.height}px tall)` : `✗ opened ${opened?.height}px tall`);
+
+// force content in and check the window followed
+await strip.evaluate(() => {
+  const pane = document.querySelector('[class*="overflow-y-auto"]');
+  if (pane) pane.innerHTML = '<div style="height:300px">tall answer</div>';
+});
+await strip.waitForTimeout(700);
+const grown = await app.evaluate(({ BrowserWindow }) => {
+  const w = BrowserWindow.getAllWindows().find((x) => x.webContents.getURL().includes('surface=quick'));
+  return w ? w.getBounds().height : 0;
+});
+const grew = grown > (opened?.height ?? 0);
+console.log(grew ? `✓ grows to fit the answer (${opened.height} → ${grown}px)` : `✗ did not grow (${grown}px)`);
+
 await app.close();
-const ok = registered && sharesAgent && compact;
+const ok = registered && sharesAgent && compact && compactHeight && grew;
 console.log(`\nquick chat: ${ok ? 'PASS' : 'FAIL'}`);
 process.exit(ok ? 0 : 1);

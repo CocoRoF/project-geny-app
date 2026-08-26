@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import type { CliInfo } from '@shared/api-types';
 import { useApp } from '../store/app-store';
 import { AvatarSettings } from './AvatarSettings';
+import { HotkeySettings } from './HotkeySettings';
+import { SystemSettings } from './SystemSettings';
 import { VoiceSettings } from './VoiceSettings';
 
 const PROVIDERS = [
@@ -118,6 +120,10 @@ export function SettingsView(): JSX.Element {
           엔진 다시 시작
         </button>
       </section>
+
+      <HotkeySettings />
+
+      <SystemSettings />
 
       <VoiceSettings />
 
